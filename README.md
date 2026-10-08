@@ -1,4 +1,4 @@
-# Linux Dashboard alpha 0.5
+# Linux Dashboard 1.0
 
 Everything you'd normally do in a terminal, with buttons, switches and plain-English explanations,
 plus an assistant that does the typing for you. Coded by Claude.

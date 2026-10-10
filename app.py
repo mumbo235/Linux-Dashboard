@@ -20,6 +20,7 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gio, GLib, Gtk, WebKit  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import batlog  # noqa: E402
 import server  # noqa: E402
 
 APP_ID = "io.github.jarvis.LinuxDashboard"
@@ -56,6 +57,7 @@ def start_server():
         server.PORT = 0
         httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
     httpd.daemon_threads = True
+    batlog.start(server.notify, server.load_settings)  # battery history + low-battery alerts
     server.ADMIN.serve()  # remembered-password admin session (see rootsession.py)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.PORT}/"

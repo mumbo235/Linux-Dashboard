@@ -540,8 +540,8 @@ async function runAction(key) {
 /* ================= navigation ================= */
 const NAV = [
   ["", [["home", "Home", "home", "blue"], ["assistant", "Assistant", "sparkles", "violet"]]],
-  ["Settings", [["appearance", "Appearance", "palette", "pink"], ["display", "Display", "monitor", "blue"], ["sound", "Sound", "volume", "red"], ["network", "Network & Bluetooth", "wifi", "cyan"], ["power", "Power & Lock", "power", "green"], ["time", "Date & Time", "clock", "orange"], ["panel", "Panel & Taskbar", "panel", "violet"], ["mouse", "Mouse & Touchpad", "pointer", "teal"]]],
-  ["System", [["apps", "Apps & Updates", "package", "violet"], ["procs", "Running Programs", "activity", "green"], ["services", "Services & Startup", "rocket", "indigo"], ["storage", "Storage", "disk", "amber"], ["sensors", "Sensors & Fans", "thermo", "red"], ["vms", "Virtual Machines", "box", "teal"], ["logs", "Logs & Problems", "scroll", "slate"]]],
+  ["Settings", [["appearance", "Appearance", "palette", "pink"], ["display", "Display", "monitor", "blue"], ["sound", "Sound", "volume", "red"], ["network", "Network & Bluetooth", "wifi", "cyan"], ["power", "Power & Lock", "power", "green"], ["profiles", "Profiles", "layers", "violet"], ["time", "Date & Time", "clock", "orange"], ["panel", "Panel & Taskbar", "panel", "violet"], ["mouse", "Mouse & Touchpad", "pointer", "teal"]]],
+  ["System", [["apps", "Apps & Updates", "package", "violet"], ["procs", "Running Programs", "activity", "green"], ["services", "Services & Startup", "rocket", "indigo"], ["storage", "Storage", "disk", "amber"], ["sensors", "Sensors & Fans", "thermo", "red"], ["vms", "Virtual Machines", "box", "teal"], ["backups", "Backups", "history", "green"], ["logs", "Logs & Problems", "scroll", "slate"]]],
   ["Tools", [["tools", "Toolbox", "wrench", "orange"], ["terminal", "Terminal", "terminal", "slate"]]],
   ["App", [["settings", "Dashboard settings", "cog", "slate"], ["support", "Ticket", "bug", "red"], ["about", "About", "info", "blue"], ["dev", "Developer", "code", "slate"]]],
 ];
@@ -2664,6 +2664,7 @@ setTimeout(() => checkMyTickets(true), 4000); setInterval(() => checkMyTickets(t
 
 
 /* ================= build all pages ================= */
+window.EXTRAS?.();  // extras.js: wraps a few pages before they are built
 $("#main").innerHTML = Object.keys(PAGEINFO).map(id => { BUILDING = id; return `<section class="page" id="page-${id}">${PAGES[id]()}</section>`; }).join("");
 NAV.forEach(([, items]) => items.forEach(([id, t, i, c]) => SEARCH.push({ page: id, title: t, desc: "Page", icon: i, color: c, isPage: true })));
 SEARCH.push({ page: "about", title: "Take the welcome tour", desc: "A quick walk through where everything is (F1)", icon: "play", color: "violet", tour: true, kw: "tour intro help guide tutorial welcome how to use" });

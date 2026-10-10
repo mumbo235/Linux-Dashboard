@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import assistant
+import batlog
 import controls
 import vmtemplates
 import harm
@@ -665,6 +666,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/kdeconnect": controls.kdeconnect,
             "/api/app/update_check": controls.check_app_update,
             "/api/battery": controls.battery_info,
+            "/api/battery/history": lambda: batlog.history(q.get("hours", 24)),
+            "/api/clipboard": batlog.clipboard_history,
+            "/api/backup/tools": lambda: {"timeshift": bool(shutil.which("timeshift")), "rsync": bool(shutil.which("rsync"))},
             "/api/battery_care": lambda: {"supported": controls.battery_care_supported(), "limit": controls.battery_care_get()},
             "/api/crashes": controls.list_crashes,
             "/api/crash/info": lambda: {"info": controls.crash_info(q.get("pid", 0))},
@@ -783,6 +787,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, tickets.mark_mine_read(str(body.get("id", ""))))
         if path == "/api/dev/diagnostics":
             return self._send(200, dev_diagnostics(body.get("client", {})))
+        if path == "/api/clipboard/set":
+            return self._send(200, batlog.clipboard_set(body.get("text", "")))
+        if path == "/api/clipboard/clear":
+            return self._send(200, batlog.clipboard_clear())
         if path == "/api/notify":
             if body.get("sound"):
                 subprocess.Popen("f=$(find /usr/share/sounds -name 'complete.oga' 2>/dev/null | head -1); [ -n \"$f\" ] && (pw-play \"$f\" || paplay \"$f\")",

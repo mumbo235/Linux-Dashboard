@@ -1056,3 +1056,5 @@ details.tk-mine > .pad { border-top: 1px solid var(--hair); }
 #palette .foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
 #palette .foot span { display: flex; gap: 4px; align-items: center; }
 #palette .empty { padding: 18px 10px 6px; }
+#palette input { color: var(--text); caret-color: var(--accent); }
+#palette input::placeholder { color: var(--muted); opacity: 1; }

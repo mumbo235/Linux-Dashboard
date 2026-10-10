@@ -134,7 +134,7 @@ class DashboardApp(Gtk.Application):
             gi.require_version("GLibUnix", "2.0")
             from gi.repository import GLibUnix
             add_signal = GLibUnix.signal_add
-        except (ImportError, ValueError):
+        except (ImportError, ValueError, AttributeError):
             add_signal = GLib.unix_signal_add
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             add_signal(GLib.PRIORITY_DEFAULT, sig, self.quit_cleanly)

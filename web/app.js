@@ -1000,8 +1000,9 @@ PAGES.network = () => pageHead("network", "Wi-Fi, wired connections, Bluetooth a
   sec("Connections") + `<div class="grid3" id="netDevices"></div>` +
   sec("Wi-Fi networks", `<button class="btn sm ghost" id="wifiRescan">${ic("refresh")}Rescan</button>`) + `<div class="group"><div class="scroll" id="wifiList"></div></div>` +
   sec("Bluetooth devices") + `<div class="group" id="btList"></div>` +
-  sec("Sharing") + group(tog("svc_sshd", "terminal", "slate", "Remote login (SSH)", "Let other computers log in to this one over the network", { kw: "ssh server" }),
-    tog("svc_avahi-daemon", "network", "teal", "Network discovery", "Find printers and shared devices automatically (Avahi)")) +
+  sec("Sharing & Security") + group(tog("svc_sshd", "terminal", "slate", "Remote login (SSH)", "Let other computers log in to this one over the network", { kw: "ssh server" }),
+    tog("svc_avahi-daemon", "network", "teal", "Network discovery", "Find printers and shared devices automatically (Avahi)"),
+    tog("svc_ufw", "shield", "red", "Firewall (UFW)", "Block unexpected incoming network connections", { kw: "security firewall" })) +
   sec("Tools") + acts(["pingTest", "speedTest", "publicIp", "restartNet", "ports", "savedNets"]);
 loaders.network = async () => {
   const [w, bt] = await Promise.all([api("/api/wifi"), api("/api/bluetooth")]);
@@ -1046,8 +1047,8 @@ loaders.power = async () => {
     const isCharging = bat.status.toLowerCase() === "charging";
     const isFull = bat.status.toLowerCase() === "full";
     const statColor = isCharging ? "green" : isFull ? "teal" : "amber";
-    const statIcon = isCharging ? "zap" : isFull ? "checkcircle" : "battery";
-    const precise = (bat.exact_pct != null ? Number(bat.exact_pct).toFixed(4) : bat.capacity.toFixed(4)) + "%";
+    const statIcon = isCharging ? "zap" : "battery";
+    const precise = (bat.exact_pct != null ? Number(bat.exact_pct).toFixed(1) : bat.capacity.toFixed(1)) + "%";
 
     if (topEl) {
       topEl.innerHTML = `
@@ -1068,7 +1069,7 @@ loaders.power = async () => {
             </div>
           </div>
           <div class="meter ${bat.capacity < 20 ? 'bad' : bat.capacity < 40 ? 'warn' : ''}" style="margin-top:12px;--mc:var(--c-${statColor})">
-            <i style="width:${Math.min(100, Math.max(0, bat.capacity))}%"></i>
+            <i style="width:${isFull ? 100 : Math.min(100, Math.max(0, bat.exact_pct != null ? bat.exact_pct : bat.capacity))}%"></i>
           </div>
         </div>`;
     }

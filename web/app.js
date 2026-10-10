@@ -1030,15 +1030,27 @@ PAGES.power = () => pageHead("power", "Sleep, screen lock, performance and power
   `<div id="batteryCareSec"></div>` +
   sec("Power") + acts(["lock", "suspend", "logout", "reboot", "poweroff", "firmware"]);
 loaders.power = async () => {
-  const b = await api("/api/battery_care").catch(() => null);
+  const b = await api("/api/battery").catch(() => null);
   const el = $("#batteryCareSec");
   if (!el) return;
-  if (b?.supported) {
-    el.innerHTML = sec("Battery health") + group(
-      custom("battery", "green", "Charging limit", "Stop charging at 80% to prolong battery lifespan",
-        `<div style="display:flex;align-items:center;gap:12px"><b id="batLimVal">${b.limit}%</b><input type="range" id="batLim" min="60" max="100" step="5" value="${b.limit}" style="width:140px"><button class="btn sm" id="batLimApply">Set</button></div>`,
-        { admin: true, kw: "battery charge threshold health care" })
-    );
+  if (b?.present && b.batteries?.length) {
+    const bat = b.batteries[0];
+    const statColor = bat.status.toLowerCase() === "charging" ? "green" : bat.status.toLowerCase() === "full" ? "teal" : "amber";
+    const healthRow = bat.health != null ? `<div class="row">${tile("heart", "red", "soft")}<div class="txt"><b>Battery health</b><small>Maximum capacity compared to when new</small></div><div class="ctl"><span class="chip ${bat.health > 80 ? "good" : bat.health > 60 ? "warn" : "bad"}">${bat.health}%</span></div></div>` : "";
+    const cycleRow = bat.cycles > 0 ? `<div class="row">${tile("refresh", "blue", "soft")}<div class="txt"><b>Cycle count</b><small>Total charge & discharge cycles completed</small></div><div class="ctl"><span class="chip plain">${bat.cycles} cycles</span></div></div>` : "";
+    const statusRow = `<div class="row">${tile("battery", statColor, "soft")}<div class="txt"><b>${esc(bat.name)}: ${bat.capacity}%</b><small>${esc(bat.status)} · ${esc(bat.technology)} ${esc(bat.model || bat.manufacturer)}</small></div><div class="ctl"><span class="chip ${statColor}">${esc(bat.status)}</span></div></div>`;
+
+    let thresholdHtml = "";
+    if (b.supported) {
+      thresholdHtml = custom("sliders", "green", "Charging limit (Battery care)", "Stop charging at 80% to prolong battery lifespan",
+        `<div style="display:flex;align-items:center;gap:12px"><b id="batLimVal">${b.limit || 80}%</b><input type="range" id="batLim" min="60" max="100" step="5" value="${b.limit || 80}" style="width:140px"><button class="btn sm" id="batLimApply">Set</button></div>`,
+        { admin: true, kw: "battery charge threshold health care" });
+    } else {
+      thresholdHtml = `<div class="row">${tile("info", "slate", "soft")}<div class="txt"><b>Charge limit control</b><small>Hardware-level charge stopping is not supported by your battery controller firmware</small></div></div>`;
+    }
+
+    el.innerHTML = sec("Battery & Health") + group(statusRow, healthRow, cycleRow, thresholdHtml);
+
     const slider = $("#batLim");
     if (slider) {
       slider.oninput = () => { $("#batLimVal").textContent = slider.value + "%"; };
@@ -2524,6 +2536,8 @@ PAGES.support = () => pageHead("support", "Something wrong with the dashboard, o
     <textarea id="tkText" rows="5" maxlength="5000" placeholder="What happened, and what did you expect? Steps to make it happen again help a lot."></textarea>
     <div class="tk-formfoot"><label class="tk-check"><input type="checkbox" id="tkDiag" checked><span>Attach app details <small>version, page, desktop and recent errors. No chats or passwords</small></span></label><button class="btn primary" id="tkSendNew">${ic("upload")}Send ticket</button></div>
   </div></div>` +
+  sec("System crash reporter", `<button class="btn sm ghost" id="crashesRefresh">${ic("refresh")}Scan</button>`) +
+  `<div class="group" id="crashesList"><div class="pad"><small style="color:var(--muted)">Scanning for system crashes and coredumps…</small></div></div>` +
   sec("My tickets", `<button class="btn sm ghost" id="tkMineRefresh">${ic("refresh")}Refresh</button>`) + `<div id="tkMine">${skeleton(2)}</div>`;
 
 let MY_TK = null, tkOpen = new Set();
@@ -2543,7 +2557,42 @@ function renderMyTickets() {
         <div class="tk-actions"><button class="btn sm primary" data-tkm-send="${t.id}">${ic("upload")}Send</button>${t.status === "closed" ? `<button class="btn sm" data-tkm-close="${t.id}" data-v="0">${ic("restart")}Reopen</button>` : `<button class="btn sm" data-tkm-close="${t.id}" data-v="1">${ic("check")}It's solved</button>`}</div></div></div></details>`; }).join("")
     : `<div class="group">${empty("checkcircle", "You haven't sent any tickets")}</div>`;
 }
-loaders.support = () => { renderMyTickets(); checkMyTickets(false); };
+async function renderCrashes() {
+  const el = $("#crashesList");
+  if (!el) return;
+  const list = await api("/api/crashes").catch(() => []);
+  if (!list?.length) {
+    el.innerHTML = `<div class="pad" style="color:var(--muted)">${ic("checkcircle")} No recent crashes recorded by systemd-coredump. Your system is stable!</div>`;
+    return;
+  }
+  el.innerHTML = list.map(c => `
+    <div class="row" style="align-items:center">
+      ${tile("bug", "red", "soft")}
+      <div class="txt">
+        <b>${esc(c.name)} (Signal ${c.sig})</b>
+        <small>${esc(c.time)} · PID ${c.pid} · ${c.size_mb ? c.size_mb + ' MB dump' : 'Crash entry'}</small>
+      </div>
+      <div class="ctl">
+        <button class="btn sm" data-crash-details="${c.pid}">${ic("terminal")}View trace</button>
+      </div>
+    </div>
+  `).join("");
+
+  $$("#crashesList [data-crash-details]").forEach(btn => {
+    btn.onclick = async () => {
+      const pid = btn.dataset.crashDetails;
+      const res = await api("/api/crash/info?pid=" + pid).catch(() => ({ info: "Failed to load trace." }));
+      await modal({
+        title: `Crash report for PID ${pid}`,
+        text: res.info || "No additional trace available.",
+        okText: "Close",
+        icon: "bug",
+        color: "red"
+      });
+    };
+  });
+}
+loaders.support = () => { renderMyTickets(); checkMyTickets(false); renderCrashes(); const crBtn = $("#crashesRefresh"); if (crBtn) crBtn.onclick = renderCrashes; };
 function tkDiag() {
   return { version: APP_VERSION, page: PREVPAGE, desktop: PLAT.desktopName || "", distro: PLAT.distro || "", window: [innerWidth, innerHeight], theme, accent: SETTINGS.appAccent || "",
     jsErrors: JSERRORS.slice(-10).map(e => ({ at: e.at, msg: String(e.msg).slice(0, 300), where: e.where })), ua: navigator.userAgent };

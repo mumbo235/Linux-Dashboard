@@ -661,7 +661,10 @@ class Handler(BaseHTTPRequestHandler):
             "/api/drives": controls.drives,
             "/api/kdeconnect": controls.kdeconnect,
             "/api/app/update_check": controls.check_app_update,
+            "/api/battery": controls.battery_info,
             "/api/battery_care": lambda: {"supported": controls.battery_care_supported(), "limit": controls.battery_care_get()},
+            "/api/crashes": controls.list_crashes,
+            "/api/crash/info": lambda: {"info": controls.crash_info(q.get("pid", 0))},
         }
         if url.path in routes:
             try:

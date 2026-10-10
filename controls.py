@@ -1440,7 +1440,36 @@ def kdeconnect():
     return [{"id": l.split(" ", 1)[0], "name": l.split(" ", 1)[1] if " " in l else l} for l in out.splitlines() if l.strip()]
 
 
-# ---------- battery charge threshold (battery health) ----------
+# ---------- battery information & health ----------
+def battery_info():
+    bats = []
+    for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        full_design = to_int(read(b / "charge_full_design" if (b / "charge_full_design").exists() else b / "energy_full_design", "0"))
+        full = to_int(read(b / "charge_full" if (b / "charge_full").exists() else b / "energy_full", "0"))
+        now = to_int(read(b / "charge_now" if (b / "charge_now").exists() else b / "energy_now", "0"))
+        cycles = to_int(read(b / "cycle_count", "0"))
+        status = read(b / "status", "Unknown")
+        capacity = to_int(read(b / "capacity", "0"))
+        health = round((full / full_design) * 100, 1) if full_design > 0 and full > 0 else None
+        bats.append({
+            "name": b.name,
+            "status": status,
+            "capacity": capacity,
+            "health": health,
+            "cycles": cycles,
+            "manufacturer": read(b / "manufacturer", ""),
+            "model": read(b / "model_name", ""),
+            "technology": read(b / "technology", "Li-ion"),
+        })
+    threshold_nodes = battery_nodes()
+    return {
+        "present": bool(bats),
+        "batteries": bats,
+        "supported": bool(threshold_nodes),
+        "limit": battery_care_get() if threshold_nodes else None,
+    }
+
+
 def battery_nodes():
     nodes = []
     for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
@@ -1463,6 +1492,41 @@ def battery_care_get():
         if val > 0:
             return val
     return 100
+
+
+# ---------- crash reporter (coredumpctl & systemd logs) ----------
+def list_crashes():
+    raw = sh("coredumpctl --json=short list --no-pager 2>/dev/null", 8)
+    try:
+        entries = json.loads(raw)
+        results = []
+        for e in reversed(entries[-20:]):
+            import datetime
+            ts = e.get("time", 0) // 1000000
+            time_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "Unknown"
+            results.append({
+                "pid": e.get("pid"),
+                "sig": e.get("sig"),
+                "exe": e.get("exe"),
+                "name": Path(e.get("exe", "")).name if e.get("exe") else f"PID {e.get('pid')}",
+                "size_mb": round(e.get("size", 0) / (1024 * 1024), 2),
+                "time": time_str,
+            })
+        return results
+    except Exception:
+        # Fallback to failed systemd units
+        failed = sh("systemctl --failed --no-legend --plain; systemctl --user --failed --no-legend --plain", 5)
+        res = []
+        for line in failed.splitlines():
+            p = line.split()
+            if p:
+                res.append({"pid": 0, "sig": 0, "exe": p[0], "name": p[0], "size_mb": 0, "time": "recently"})
+        return res
+
+
+def crash_info(pid):
+    pid = int(pid)
+    return sh(f"coredumpctl info {pid} 2>&1 | head -50", 10)
 
 
 def battery_care_cmd(limit):

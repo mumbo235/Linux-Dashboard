@@ -1034,3 +1034,25 @@ details.tk-mine > .pad { border-top: 1px solid var(--hair); }
 :root[data-theme="retro"] body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9998;
   background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px), radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,.45)); }
 :root[data-theme="retro"] img { filter: sepia(1) hue-rotate(60deg) saturate(3); }
+
+/* search palette: clean launcher look */
+#palette .box { width: 620px; }
+#palette .in { padding: 16px 18px; gap: 12px; }
+#palette input { font-size: 17px; }
+#palette .in kbd, #palette .foot kbd { font: 600 10.5px/1 inherit; font-family: inherit; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; background: var(--bg, transparent); }
+#palette .res { max-height: 50vh; padding: 4px 8px 8px; }
+#palette .grp { font-size: 10.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 12px 10px 4px; }
+#palette .it { padding: 7px 10px; gap: 11px; border-radius: 9px; }
+#palette .it .tile { width: 26px; height: 26px; border-radius: 7px; flex: none; }
+#palette .it .tile svg { width: 14px; height: 14px; }
+#palette .it .tx { min-width: 0; flex: 1; }
+#palette .it b { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#palette .it small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#palette .it mark { background: none; color: var(--accent); font-weight: 650; }
+#palette .it .where { margin-left: 0; font-size: 11px; background: var(--accent-weak); color: var(--muted); border-radius: 20px; padding: 2px 9px; }
+#palette .it .go { color: var(--muted); display: none; }
+#palette .it .go svg { width: 14px; height: 14px; }
+#palette .it.sel .go { display: block; }
+#palette .foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+#palette .foot span { display: flex; gap: 4px; align-items: center; }
+#palette .empty { padding: 18px 10px 6px; }

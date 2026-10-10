@@ -3145,14 +3145,22 @@ $("#pIcon").innerHTML = ic("search");
 function openPalette() { clearTimeout($("#palette")._ct); $("#palette").classList.remove("closing"); $("#palette").classList.add("open"); $("#pInput").value = ""; renderPalette(); setTimeout(() => $("#pInput").focus(), 20); }
 function closePalette() { closeOverlay($("#palette")); }
 function renderPalette() {
-  const q = $("#pInput").value.trim().toLowerCase(), words = q.split(/\s+/).filter(Boolean);
-  const score = s => { const hay = (s.title + " " + (s.desc || "") + " " + (s.kw || "") + " " + PAGEINFO[s.page]?.t).toLowerCase(); if (!words.every(w => hay.includes(w))) return -1; return (s.title.toLowerCase().startsWith(q) ? 3 : 0) + (s.title.toLowerCase().includes(q) ? 2 : 0) + (s.isPage ? 1 : 0); };
+  const raw = $("#pInput").value.trim(), q = raw.toLowerCase(), words = q.split(/\s+/).filter(Boolean);
+  const score = s => { const t = s.title.toLowerCase(), hay = (t + " " + (s.desc || "") + " " + (s.kw || "") + " " + PAGEINFO[s.page]?.t).toLowerCase(); if (!words.every(w => hay.includes(w))) return -1; return (t === q ? 5 : 0) + (t.startsWith(q) ? 3 : 0) + (t.includes(q) ? 2 : 0) + (words.every(w => t.includes(w)) ? 1 : 0) + (s.isPage ? 1 : 0); };
   const seen = new Set();
-  pItems = SEARCH.filter(s => (s.page !== "dev" || SETTINGS.devMode) && !PAGEINFO[s.page]?.secret).map(s => [score(s), s]).filter(([sc]) => sc >= 0).sort((a, b) => b[0] - a[0]).map(([, s]) => s)
-    .filter(s => { const k = s.title + s.page; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, q ? 40 : 14);
-  if (q) pItems.unshift({ title: `Ask the assistant: “${$("#pInput").value.trim()}”`, desc: "It explains the steps and runs them for you", icon: "sparkles", color: "violet", ask: $("#pInput").value.trim(), page: "assistant" });
+  let list = SEARCH.filter(s => (s.page !== "dev" || SETTINGS.devMode) && !PAGEINFO[s.page]?.secret).map(s => [score(s), s]).filter(([sc]) => sc >= 0).sort((a, b) => b[0] - a[0]).map(([, s]) => s)
+    .filter(s => { const k = s.title + s.page; if (seen.has(k)) return false; seen.add(k); return true; });
+  if (!q) list = list.filter(s => s.isPage);  // nothing typed: just the pages, like a clean launcher
+  list = list.slice(0, q ? 24 : 30);
+  const groups = [["Pages", list.filter(s => s.isPage)], ["Actions", list.filter(s => !s.isPage && s.act)], ["Settings", list.filter(s => !s.isPage && !s.act)]];
+  pItems = []; let html = "";
+  const mark = t => { const e = esc(t); if (!words.length) return e; return e.replace(new RegExp("(" + words.map(w => esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "ig"), "<mark>$1</mark>"); };
+  const item = (s, i) => `<div class="it ${i === pSel ? "sel" : ""}" data-pi="${i}">${tile(s.icon, s.color, "soft")}<div class="tx"><b>${s.ask ? esc(s.title) : mark(s.title)}</b>${s.desc && q ? `<small>${esc(s.desc)}</small>` : ""}</div>${s.isPage || s.ask ? "" : `<span class="where">${esc(PAGEINFO[s.page]?.t || "")}</span>`}<span class="go">${ic("chevright")}</span></div>`;
+  for (const [name, items] of groups) { if (!items.length) continue; html += `<div class="grp">${name}</div>`; for (const s of items) { html += item(s, pItems.length); pItems.push(s); } }
+  if (q) { const ask = { title: `Ask the assistant: “${raw}”`, desc: "It explains the steps and runs them for you", icon: "sparkles", color: "violet", ask: raw, page: "assistant" }; html += `<div class="grp">Not finding it?</div>` + item(ask, pItems.length); pItems.push(ask); }
   pSel = Math.min(pSel, Math.max(0, pItems.length - 1));
-  $("#pRes").innerHTML = pItems.map((s, i) => `<div class="it ${i === pSel ? "sel" : ""}" data-pi="${i}">${tile(s.icon, s.color)}<div><b>${esc(s.title)}</b>${s.desc ? `<small>${esc(s.desc)}</small>` : ""}</div><span class="where">${s.act ? "Action · " : ""}${s.isPage ? "" : esc(PAGEINFO[s.page]?.t || "")}</span></div>`).join("") || empty("search", "No matches");
+  $("#pRes").innerHTML = q && pItems.length === 1 ? `<div class="empty">${ic("search")}<div>No settings match “${esc(raw)}”</div></div>` + html : html;
+  $("#pRes").querySelectorAll(".it").forEach(el => el.classList.toggle("sel", +el.dataset.pi === pSel));
 }
 function choosePalette(i) {
   const s = pItems[i]; if (!s) return; closePalette();

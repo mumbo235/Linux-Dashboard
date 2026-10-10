@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Dashboard</title>
+<link rel="stylesheet" href="/web/style.css">
+<script>window.TOKEN = "__TOKEN__"; window.PLATFORM = "__PLATFORM__"; window.APP_VERSION = "__VERSION__";</script>
+</head>
+<body>
+<aside id="side"></aside>
+<main id="main"></main>
+
+<div id="drawer">
+  <header>
+    <span class="dtitle" id="drawerTitle"></span>
+    <div id="jtabs" style="display:flex;gap:6px"></div>
+    <span class="grow"></span>
+    <button class="tog" id="drawerTog" title="Show/hide (Ctrl+`)"></button>
+  </header>
+  <div class="cmdline" id="cmdline"><span>$</span><code id="outCmd"></code>
+    <button class="btn sm" id="outAsk" style="display:none">Ask the assistant why</button>
+    <button class="btn sm" id="outCopy">Copy command</button>
+    <button class="btn sm" id="outStop">Stop</button></div>
+  <pre id="out"></pre>
+  <div class="actlog" id="actlog"></div>
+</div>
+
+<div class="overlay" id="modal"><div class="box">
+  <div class="mh"><span id="mIcon"></span><h3 id="mTitle"></h3></div>
+  <p id="mText"></p><pre id="mCmd"></pre>
+  <input id="mInput" type="text" list="mList"><datalist id="mList"></datalist>
+  <div class="btns"><button class="btn" id="mCancel">Cancel</button><button class="btn primary" id="mOk">OK</button></div>
+</div></div>
+
+<div class="overlay" id="palette"><div class="box">
+  <div class="in"><span id="pIcon"></span><input id="pInput" placeholder="Search settings, pages and actions…" autocomplete="off" spellcheck="false"></div>
+  <div class="res" id="pRes"></div>
+</div></div>
+
+<div id="toasts"></div>
+<script src="/web/icons.js"></script>
+<script src="/web/content.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""Linux Dashboard fan controller for Macs (installed by ~/linux-dashboard).
+  fan-overdrive              hold fans at speed or curve in /etc/linux-dashboard-fans
+  fan-overdrive --restore    hand the fans back to automatic control
+  fan-overdrive --stop       force the fans to stop (0 rpm)
+  fan-overdrive --find-limit step the speed up until the fans stop getting faster
+"""
+import glob
+import math
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+
+def find_smc():
+    for p in glob.glob("/sys/class/hwmon/hwmon*/device/name") + glob.glob("/sys/class/hwmon/hwmon*/name"):
+        try:
+            if Path(p).read_text().strip() == "applesmc":
+                d = Path(p).parent
+                if (d / "fan1_output").exists() or (d / "fan1_min").exists():
+                    return d
+        except OSError:
+            pass
+    for d in Path("/sys/devices/platform").glob("applesmc*"):
+        if (d / "fan1_output").exists() or (d / "fan1_min").exists():
+            return d
+    return None
+
+
+D = find_smc()
+CEIL_PCT = 150
+
+
+def read_int(path, default=0):
+    try:
+        return int(Path(path).read_text().strip())
+    except (OSError, ValueError):
+        return default
+
+
+def write_val(path, val):
+    try:
+        Path(path).write_text(f"{val}\n")
+        return True
+    except OSError:
+        return False
+
+
+def restore():
+    if not D:
+        return
+    for f in D.glob("fan*_manual"):
+        write_val(f, 0)
+    for f in D.glob("fan*_min"):
+        n = f.name.split("_")[0]
+        safe = read_int(D / f"{n}_safe", 0)
+        if safe > 0:
+            write_val(f, safe)
+
+
+def force_stop():
+    if not D:
+        return
+    for f in D.glob("fan*_manual"):
+        write_val(f, 1)
+    outputs = list(D.glob("fan*_output"))
+    if outputs:
+        for f in outputs:
+            write_val(f, 0)
+    for f in D.glob("fan*_min"):
+        write_val(f, 0)
+
+
+def set_all(target_rpm):
+    if not D:
+        return False
+    ok = True
+    for out in D.glob("fan*_output"):
+        n = out.name.split("_")[0]
+        max_rpm = read_int(D / f"{n}_max", 0)
+        t = int(target_rpm)
+        if max_rpm > 0:
+            if t < max_rpm:
+                t = max_rpm
+            ceil = max_rpm * CEIL_PCT // 100
+            if t > ceil:
+                t = ceil
+        if not write_val(D / f"{n}_manual", 1):
+            ok = False
+        if not write_val(out, t):
+            ok = False
+    return ok
+
+
+def get_highest_temp():
+    temps = []
+    for p in glob.glob("/sys/devices/platform/coretemp.0/hwmon/hwmon*/temp*_input") + \
+             glob.glob("/sys/class/drm/card0/device/hwmon/hwmon*/temp*_input") + \
+             glob.glob("/sys/class/hwmon/hwmon*/temp*_input"):
+        try:
+            val = int(Path(p).read_text().strip()) // 1000
+            if 0 < val < 125:
+                temps.append(val)
+        except (OSError, ValueError):
+            pass
+    return max(temps) if temps else None
+
+
+def find_limit():
+    if not D:
+        print("No Mac fan controller found")
+        sys.exit(1)
+    u = subprocess.getoutput("systemctl list-unit-files --no-legend 't2fanrd*' 't2fand*' | awk 'NR==1{print $1}'").strip()
+    was_od = subprocess.getoutput("systemctl is-active linux-dashboard-fans").strip() == "active"
+    was_t2 = bool(u) and subprocess.getoutput(f"systemctl is-active {u}").strip() == "active"
+    subprocess.run("systemctl stop linux-dashboard-fans 2>/dev/null", shell=True)
+    if u:
+        subprocess.run(f"systemctl stop {u} 2>/dev/null", shell=True)
+
+    def finish(*a):
+        restore()
+        if was_od:
+            subprocess.run("systemctl start linux-dashboard-fans", shell=True)
+        if was_t2 and u:
+            subprocess.run(f"systemctl start {u}", shell=True)
+        print("Fans handed back to their previous control.")
+
+    signal.signal(signal.SIGINT, lambda *a: (finish(), sys.exit(0)))
+    signal.signal(signal.SIGTERM, lambda *a: (finish(), sys.exit(0)))
+
+    max_rpm = read_int(D / "fan1_max", 0)
+    if not max_rpm:
+        print("Could not read fan maximum")
+        restore()
+        sys.exit(1)
+
+    print(f"Normal top speed: {max_rpm} rpm. Raising it in steps (about 5 seconds each, it will get loud)...")
+    best = 0
+    flat = 0
+    ceil = max_rpm * CEIL_PCT // 100
+
+    for T in range(max_rpm, ceil + 1, 100):
+        if not set_all(T):
+            print(f"The fan controller refused {T} rpm.")
+            break
+        time.sleep(5)
+        r = read_int(D / "fan1_input", 0)
+        print(f"Asked for {T} rpm -> fans running at {r} rpm")
+        if r <= best + 30:
+            flat += 1
+        else:
+            flat = 0
+        if r > best:
+            best = r
+        if flat >= 2:
+            print("The fans stopped getting faster.")
+            break
+
+    print(f"LIMIT={best}")
+    finish()
+    sys.exit(0)
+
+
+def main():
+    if not D or (not (D / "fan1_output").exists() and not (D / "fan1_min").exists()):
+        print("No Mac fan controller found")
+        sys.exit(1)
+
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg in ("--restore", "-r"):
+            restore()
+            sys.exit(0)
+        elif arg in ("--stop", "--force-stop", "-s"):
+            force_stop()
+            sys.exit(0)
+        elif arg == "--find-limit":
+            find_limit()
+            sys.exit(0)
+        else:
+            print(f"Unknown option: {arg}")
+            sys.exit(1)
+
+    signal.signal(signal.SIGTERM, lambda *a: (restore(), sys.exit(0)))
+    signal.signal(signal.SIGINT, lambda *a: (restore(), sys.exit(0)))
+
+    conf_path = Path("/etc/linux-dashboard-fans")
+
+    while True:
+        conf = {}
+        if conf_path.exists():
+            try:
+                for line in conf_path.read_text().splitlines():
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        conf[k.strip().upper()] = v.strip()
+            except OSError:
+                pass
+
+        mode = conf.get("MODE", "").lower()
+        t_val = 0
+        try:
+            t_val = int(conf.get("T", 0))
+        except ValueError:
+            pass
+
+        if mode == "stop":
+            force_stop()
+        elif mode == "auto":
+            restore()
+        elif mode == "curve":
+            low = int(conf.get("LOW", 55))
+            high = int(conf.get("HIGH", 75))
+            curve = conf.get("CURVE", "linear").lower()
+            full = conf.get("FULL", "false").lower() in ("true", "1", "yes")
+            temp = get_highest_temp()
+
+            for out in D.glob("fan*_output"):
+                n = out.name.split("_")[0]
+                min_rpm = read_int(D / f"{n}_min", 1100)
+                max_rpm = read_int(D / f"{n}_max", 2800)
+                if full or (temp is not None and temp >= high):
+                    target = max_rpm
+                elif temp is None or temp <= low:
+                    target = min_rpm
+                else:
+                    r = (temp - low) / max(high - low, 1)
+                    if curve == "exponential":
+                        shape = r ** 3
+                    elif curve == "logarithmic":
+                        shape = math.log10(1 + 9 * r)
+                    else:
+                        shape = r
+                    target = int(min_rpm + round((max_rpm - min_rpm) * shape))
+                write_val(D / f"{n}_manual", 1)
+                write_val(out, target)
+        elif mode == "overdrive" and t_val > 0:
+            # Overdrive / fixed RPM
+            set_all(t_val)
+        else:
+            # Missing or unknown config: never default to full speed, hand back to Apple
+            restore()
+
+        time.sleep(4)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,11 @@
+[Unit]
+Description=Linux Dashboard fan overdrive (Mac fans held at a high fixed speed)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/linux-dashboard/fan-overdrive
+ExecStopPost=/usr/local/lib/linux-dashboard/fan-overdrive --restore
+
+[Install]
+WantedBy=multi-user.target

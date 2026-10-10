@@ -1449,12 +1449,21 @@ def battery_info():
         now = to_int(read(b / "charge_now" if (b / "charge_now").exists() else b / "energy_now", "0"))
         cycles = to_int(read(b / "cycle_count", "0"))
         status = read(b / "status", "Unknown")
-        capacity = to_int(read(b / "capacity", "0"))
-        health = round((full / full_design) * 100, 1) if full_design > 0 and full > 0 else None
+        voltage = to_int(read(b / "voltage_now", "0")) / 1000000
+        current = to_int(read(b / "current_now", "0")) / 1000000
+        power = to_int(read(b / "power_now", "0")) / 1000000
+        watts = round(power if power > 0 else (voltage * current if voltage > 0 and current > 0 else 0), 2)
+        exact_pct = round((now / full) * 100, 4) if full > 0 and now > 0 else float(capacity)
+        if exact_pct > 100.0:
+            exact_pct = 100.0
+        health = round((full / full_design) * 100, 2) if full_design > 0 and full > 0 else None
         bats.append({
             "name": b.name,
             "status": status,
             "capacity": capacity,
+            "exact_pct": exact_pct,
+            "voltage": round(voltage, 2) if voltage > 0 else None,
+            "watts": watts if watts > 0 else None,
             "health": health,
             "cycles": cycles,
             "manufacturer": read(b / "manufacturer", ""),

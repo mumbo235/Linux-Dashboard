@@ -1020,6 +1020,7 @@ loaders.network = async () => {
 /* ---------- POWER ---------- */
 const mins = (list, never = "Never") => [[0, never], ...list.map(m => [m * 60, m < 60 ? `${m} minute${m > 1 ? "s" : ""}` : `${m / 60} hour${m > 60 ? "s" : ""}`])];
 PAGES.power = () => pageHead("power", "Sleep, screen lock, performance and power buttons.") +
+  `<div id="batteryTopHero"></div>` +
   group(tog("awake", "coffee", "amber", "Keep awake", "Never dim, lock or sleep while this is on (like caffeine)", { kw: "caffeine prevent sleep" }),
     tog("performance", "zap", "orange", "Performance mode", "Run the CPU at full speed. Uses more power, resets on restart", { kw: "cpu governor" })) +
   secIf("When idle",
@@ -1029,40 +1030,79 @@ PAGES.power = () => pageHead("power", "Sleep, screen lock, performance and power
     tog("lockresume", "shield", "green", "Lock when waking from sleep", "Ask for your password after sleep"))) +
   `<div id="batteryCareSec"></div>` +
   sec("Power") + acts(["lock", "suspend", "logout", "reboot", "poweroff", "firmware"]);
+let batTimer = null;
 loaders.power = async () => {
-  const b = await api("/api/battery").catch(() => null);
-  const el = $("#batteryCareSec");
-  if (!el) return;
-  if (b?.present && b.batteries?.length) {
+  clearInterval(batTimer);
+  const updateBattery = async () => {
+    const b = await api("/api/battery").catch(() => null);
+    const topEl = $("#batteryTopHero");
+    const el = $("#batteryCareSec");
+    if (!b?.present || !b.batteries?.length) {
+      if (topEl) topEl.innerHTML = "";
+      if (el) el.innerHTML = "";
+      return;
+    }
     const bat = b.batteries[0];
-    const statColor = bat.status.toLowerCase() === "charging" ? "green" : bat.status.toLowerCase() === "full" ? "teal" : "amber";
-    const healthRow = bat.health != null ? `<div class="row">${tile("heart", "red", "soft")}<div class="txt"><b>Battery health</b><small>Maximum capacity compared to when new</small></div><div class="ctl"><span class="chip ${bat.health > 80 ? "good" : bat.health > 60 ? "warn" : "bad"}">${bat.health}%</span></div></div>` : "";
-    const cycleRow = bat.cycles > 0 ? `<div class="row">${tile("refresh", "blue", "soft")}<div class="txt"><b>Cycle count</b><small>Total charge & discharge cycles completed</small></div><div class="ctl"><span class="chip plain">${bat.cycles} cycles</span></div></div>` : "";
-    const statusRow = `<div class="row">${tile("battery", statColor, "soft")}<div class="txt"><b>${esc(bat.name)}: ${bat.capacity}%</b><small>${esc(bat.status)} · ${esc(bat.technology)} ${esc(bat.model || bat.manufacturer)}</small></div><div class="ctl"><span class="chip ${statColor}">${esc(bat.status)}</span></div></div>`;
+    const isCharging = bat.status.toLowerCase() === "charging";
+    const isFull = bat.status.toLowerCase() === "full";
+    const statColor = isCharging ? "green" : isFull ? "teal" : "amber";
+    const statIcon = isCharging ? "zap" : isFull ? "checkcircle" : "battery";
+    const precise = (bat.exact_pct != null ? Number(bat.exact_pct).toFixed(4) : bat.capacity.toFixed(4)) + "%";
 
-    let thresholdHtml = "";
-    if (b.supported) {
-      thresholdHtml = custom("sliders", "green", "Charging limit (Battery care)", "Stop charging at 80% to prolong battery lifespan",
-        `<div style="display:flex;align-items:center;gap:12px"><b id="batLimVal">${b.limit || 80}%</b><input type="range" id="batLim" min="60" max="100" step="5" value="${b.limit || 80}" style="width:140px"><button class="btn sm" id="batLimApply">Set</button></div>`,
-        { admin: true, kw: "battery charge threshold health care" });
-    } else {
-      thresholdHtml = `<div class="row">${tile("info", "slate", "soft")}<div class="txt"><b>Charge limit control</b><small>Hardware-level charge stopping is not supported by your battery controller firmware</small></div></div>`;
+    if (topEl) {
+      topEl.innerHTML = `
+        <div class="card pad" style="margin-bottom:14px;background:linear-gradient(135deg, rgba(var(--c-${statColor}-rgb, 49, 134, 255), 0.12), transparent);border:1px solid rgba(var(--c-${statColor}-rgb, 49, 134, 255), 0.25)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:14px">
+              ${tile(statIcon, statColor)}
+              <div>
+                <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);font-weight:600">${esc(bat.name)} · ${esc(bat.status)}</div>
+                <div style="font-size:32px;font-weight:750;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;color:var(--text)" id="liveBatExact">${precise}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${bat.watts ? `<span class="chip plain">${bat.watts} W</span>` : ""}
+              ${bat.voltage ? `<span class="chip plain">${bat.voltage} V</span>` : ""}
+              ${bat.health != null ? `<span class="chip ${bat.health > 80 ? 'good' : bat.health > 60 ? 'warn' : 'bad'}">Health: ${bat.health}%</span>` : ""}
+              ${bat.cycles > 0 ? `<span class="chip plain">${bat.cycles} cycles</span>` : ""}
+            </div>
+          </div>
+          <div class="meter ${bat.capacity < 20 ? 'bad' : bat.capacity < 40 ? 'warn' : ''}" style="margin-top:12px;--mc:var(--c-${statColor})">
+            <i style="width:${Math.min(100, Math.max(0, bat.capacity))}%"></i>
+          </div>
+        </div>`;
     }
 
-    el.innerHTML = sec("Battery & Health") + group(statusRow, healthRow, cycleRow, thresholdHtml);
+    if (el) {
+      const healthRow = bat.health != null ? `<div class="row">${tile("heart", "red", "soft")}<div class="txt"><b>Battery health</b><small>Maximum capacity compared to when new</small></div><div class="ctl"><span class="chip ${bat.health > 80 ? "good" : bat.health > 60 ? "warn" : "bad"}">${bat.health}%</span></div></div>` : "";
+      const cycleRow = bat.cycles > 0 ? `<div class="row">${tile("refresh", "blue", "soft")}<div class="txt"><b>Cycle count</b><small>Total charge & discharge cycles completed</small></div><div class="ctl"><span class="chip plain">${bat.cycles} cycles</span></div></div>` : "";
+      const statusRow = `<div class="row">${tile("battery", statColor, "soft")}<div class="txt"><b>${esc(bat.name)}: ${precise}</b><small>${esc(bat.status)} · ${esc(bat.technology)} ${esc(bat.model || bat.manufacturer)}</small></div><div class="ctl"><span class="chip ${statColor}">${esc(bat.status)}</span></div></div>`;
 
-    const slider = $("#batLim");
-    if (slider) {
-      slider.oninput = () => { $("#batLimVal").textContent = slider.value + "%"; };
-      $("#batLimApply").onclick = async () => {
-        await setCtl("battery_care", +slider.value, { label: `Battery limit ${slider.value}%` });
-        toast("ok", `Battery limit set to ${slider.value}%`);
-      };
+      let thresholdHtml = "";
+      if (b.supported) {
+        thresholdHtml = custom("sliders", "green", "Charging limit (Battery care)", "Stop charging at 80% to prolong battery lifespan",
+          `<div style="display:flex;align-items:center;gap:12px"><b id="batLimVal">${b.limit || 80}%</b><input type="range" id="batLim" min="60" max="100" step="5" value="${b.limit || 80}" style="width:140px"><button class="btn sm" id="batLimApply">Set</button></div>`,
+          { admin: true, kw: "battery charge threshold health care" });
+      } else {
+        thresholdHtml = `<div class="row">${tile("info", "slate", "soft")}<div class="txt"><b>Charge limit control</b><small>Hardware-level charge stopping is not supported by your battery controller firmware</small></div></div>`;
+      }
+
+      el.innerHTML = sec("Battery & Health") + group(statusRow, healthRow, cycleRow, thresholdHtml);
+
+      const slider = $("#batLim");
+      if (slider) {
+        slider.oninput = () => { $("#batLimVal").textContent = slider.value + "%"; };
+        $("#batLimApply").onclick = async () => {
+          await setCtl("battery_care", +slider.value, { label: `Battery limit ${slider.value}%` });
+          toast("ok", `Battery limit set to ${slider.value}%`);
+        };
+      }
     }
-  } else {
-    el.innerHTML = "";
-  }
+  };
+  await updateBattery();
+  batTimer = setInterval(() => { if (CUR === "power" && !document.hidden) updateBattery(); }, 3000);
 };
+leavers.power = () => clearInterval(batTimer);
 
 /* ---------- TIME ---------- */
 PAGES.time = () => pageHead("time", "Clock, time zone and computer name.") +

@@ -713,6 +713,11 @@ class Handler(BaseHTTPRequestHandler):
                 except ProcessLookupError:
                     pass
             return self._send(200, {"ok": bool(p)})
+        if path == "/api/assist/stop":
+            req_id = body.get("id")
+            if req_id:
+                assistant.cancel_request(req_id)
+            return self._send(200, {"ok": True})
         if path == "/api/control":
             return self.set_control(body)
         if path == "/api/app/update_apply":
@@ -734,7 +739,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, {"error": f"Failed to download/run update: {e}"})
         if path == "/api/assist":
             return self._send(200, assistant.ask(body.get("messages", []), bool(body.get("memory", True)),
-                                                body.get("effort", "medium"), body.get("style", "short"), body.get("model") or None))
+                                                body.get("effort", "medium"), body.get("style", "short"),
+                                                body.get("model") or None, req_id=body.get("req_id")))
         if path == "/api/ai/models":
             prov = str(body.get("provider", ""))
             if prov not in ai.PROVIDERS:

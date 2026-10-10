@@ -393,7 +393,23 @@ STYLES = {
 }
 
 
-def ask(messages, use_memory=True, effort="medium", style="short", model=None):
+CANCELLED_REQUESTS = set()
+
+
+def cancel_request(req_id):
+    if req_id:
+        CANCELLED_REQUESTS.add(str(req_id))
+
+
+def is_cancelled(req_id):
+    return bool(req_id and str(req_id) in CANCELLED_REQUESTS)
+
+
+def ask(messages, use_memory=True, effort="medium", style="short", model=None, req_id=None):
+    if is_cancelled(req_id):
+        if req_id:
+            CANCELLED_REQUESTS.discard(str(req_id))
+        return {"error": "Stopped by user", "code": "stopped"}
     import ai_providers as ai
     system = system_prompt() + STYLES.get(style, "") + (memory_prompt() if use_memory else "")
     prompt = ("Conversation so far:\n\n" + transcript(messages) +
@@ -401,7 +417,15 @@ def ask(messages, use_memory=True, effort="medium", style="short", model=None):
     try:
         out, info = ai.ask_json(system, prompt, SCHEMA, effort)
     except ai.AIError as e:
+        if req_id:
+            CANCELLED_REQUESTS.discard(str(req_id))
         return {"error": str(e), "code": e.code}
+    if is_cancelled(req_id):
+        if req_id:
+            CANCELLED_REQUESTS.discard(str(req_id))
+        return {"error": "Stopped by user", "code": "stopped"}
+    if req_id:
+        CANCELLED_REQUESTS.discard(str(req_id))
     if out.get("off_topic"):
         out["steps"], out["page"], out["done"] = [], "", True  # never run anything for an off-topic request
         out["highlights"], out["callouts"], out["terms"], out["links"] = [], [], [], []

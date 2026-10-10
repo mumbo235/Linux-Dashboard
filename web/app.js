@@ -36,13 +36,13 @@ const saveSettings = debounce(() => api("/api/settings", { settings: SETTINGS })
 const DEVLOG = [], JSERRORS = [];
 window.addEventListener("error", e => { JSERRORS.push({ at: new Date().toLocaleTimeString(), msg: e.message, where: `${(e.filename || "").split("/").pop()}:${e.lineno}` }); if (JSERRORS.length > 50) JSERRORS.shift(); });
 window.addEventListener("unhandledrejection", e => { JSERRORS.push({ at: new Date().toLocaleTimeString(), msg: "Unhandled promise: " + (e.reason?.message || e.reason), where: "" }); if (JSERRORS.length > 50) JSERRORS.shift(); });
-async function api(path, body) {
+async function api(path, body, opts = {}) {
   const t0 = performance.now();
   if (typeof SETTINGS !== "undefined" && !path.startsWith("/api/dev")) {
     if (SETTINGS.devMode && +SETTINGS.devSlowNet) await new Promise(r => setTimeout(r, +SETTINGS.devSlowNet));
     if (TOOLS.unlocked && +SETTINGS.devFailRate && Math.random() < +SETTINGS.devFailRate) { DEVLOG.push({ at: new Date().toLocaleTimeString(), method: body ? "POST" : "GET", path, ms: 0, status: "fake fail" }); throw new Error("Simulated failure (developer mode)"); }
   }
-  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "X-Token": TOKEN, "Content-Type": "application/json", ...TOOLS.headers }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "X-Token": TOKEN, "Content-Type": "application/json", ...TOOLS.headers, ...(opts.headers || {}) }, body: body ? JSON.stringify(body) : undefined, signal: opts.signal });
   if (typeof SETTINGS !== "undefined" && SETTINGS.devApiLog) { DEVLOG.push({ at: new Date().toLocaleTimeString(), method: body ? "POST" : "GET", path, ms: Math.round(performance.now() - t0), status: r.status }); if (DEVLOG.length > 150) DEVLOG.shift(); if (CUR === "dev") renderDevLog(); }
   if (r.status === 401) { toast("fail", "Session expired", "Press Ctrl+R to reload"); throw new Error("401"); }
   return r.json();
@@ -1610,6 +1610,48 @@ let CHAT = (() => { try { return JSON.parse(localStorage.getItem("chat") || "[]"
 const newChatId = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)).slice(0, 16);
 let CHAT_ID = newChatId();  // every app start opens a new chat; earlier ones stay in History
 let assistBusy = false, autoRounds = 0, tipFilter = "All";
+let assistAbort = null, assistStopped = false, assistReqId = null;
+
+function updateComposerState() {
+  const btn = $("#asSend");
+  if (!btn) return;
+  if (assistBusy) {
+    btn.className = "btn danger";
+    btn.innerHTML = `${ic("stop")}Stop`;
+    btn.title = "Stop generating (Esc)";
+  } else {
+    btn.className = "btn primary";
+    btn.innerHTML = `${ic("arrowup")}Send`;
+    btn.title = "Send (Enter)";
+  }
+}
+
+function stopAssistant() {
+  const hadWork = assistBusy || CHAT.some(m => (m.steps || []).some(s => s.status === "running"));
+  if (!hadWork) return;
+  assistStopped = true;
+  if (assistAbort) {
+    try { assistAbort.abort(); } catch {}
+    assistAbort = null;
+  }
+  if (assistReqId) {
+    api("/api/assist/stop", { id: assistReqId }).catch(() => {});
+    assistReqId = null;
+  }
+  CHAT.forEach(m => (m.steps || []).forEach(s => {
+    if (s.status === "running") {
+      if (s.jobId) api("/api/stop", { id: s.jobId }).catch(() => {});
+      s.status = "fail";
+      s.output = (s.output || "") + "\n(Stopped by user)";
+    }
+  }));
+  assistBusy = false;
+  CHAT.push({ role: "sys", text: "Stopped by user" });
+  updateComposerState();
+  saveChat();
+  renderChat();
+  $("#asInput")?.focus();
+}
 CHAT.forEach(m => (m.steps || []).forEach(s => { if (s.status === "running") s.status = "fail"; }));  // interrupted by a restart
 const chatTitle = () => (CHAT.find(m => m.role === "user")?.text || "New chat").replace(/\s+/g, " ").slice(0, 70);
 const saveChat = debounce(() => {
@@ -1623,7 +1665,7 @@ async function openChat(id) {
   try { localStorage.setItem("chatId", CHAT_ID); } catch {}
   autoRounds = 0; chatSeen = CHAT.length; renderChat(); $("#main").scrollTop = 0;
 }
-function newChat() { saveChat(); CHAT = []; chatSeen = 0; CHAT_ID = newChatId(); try { localStorage.setItem("chatId", CHAT_ID); } catch {} renderChat(); Ghost.start(); }
+function newChat() { if (assistBusy) stopAssistant(); saveChat(); CHAT = []; chatSeen = 0; CHAT_ID = newChatId(); try { localStorage.setItem("chatId", CHAT_ID); } catch {} renderChat(); Ghost.start(); }
 const mdInline = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
 // Tiny, safe markdown: `code`, **bold**, "- " bullet lists, "1." numbered lists, line breaks
 function md(s) {
@@ -1706,6 +1748,7 @@ function renderChat(opts = {}) {
   box.innerHTML = CHAT.map((m, mi) => {
     if (m.role === "user") return `<div class="msg me" data-mi="${mi}">${md(m.text)}</div>`;
     if (m.role === "results") return m.quiet ? "" : `<div class="msg sys">${ic("upload")}Sent the results to the assistant</div>`;
+    if (m.role === "sys") return `<div class="msg sys">${ic("stop")}${esc(m.text || "Stopped")}</div>`;
     if (m.answeredBy != null && CHAT[m.answeredBy]) return "";  // shown attached to its answer instead
     if (m.quick) return `<div class="msg ai" data-mi="${mi}"><img src="/web/app-icon.svg" alt=""><div class="body"><div class="text checking">${md(m.reply)}</div>${checksHtml(m, mi, m.steps.some(s => s.status !== "ok" && s.status !== "fail"))}</div></div>`;
     if (m.role === "error") return `<div class="msg err">${ic("alertcircle")}<div>${md(m.text)}${["setup", "sdk", "auth", "model", "limit"].includes(m.code) ? `<div style="margin-top:8px"><button class="btn sm primary" data-ai-setup>${ic("cog")}AI settings</button></div>` : ""}</div></div>`;
@@ -1722,7 +1765,7 @@ function renderChat(opts = {}) {
       ${(m.steps || []).length ? `<div class="steps">${m.steps.map((s, si) => stepHtml(m, mi, s, si, nextIdx)).join("")}</div>` : ""}
       <div class="meta">${pg}${resolved && ran && !m.sent ? `<button class="btn sm primary" data-explain="${mi}">${ic("sparkles")}Explain the results</button>` : ""}${SETTINGS.showCost && (m.cost != null || m.tokens) ? `<span title="${esc(m.model || "")}">${m.seconds}s · ${m.cost != null ? "~$" + m.cost.toFixed(3) : (m.tokens / 1000).toFixed(1) + "k tokens"}</span>` : ""}${(m.remembered || []).length ? `<span class="chip accent plain" title="${esc(m.remembered.join("\n"))}" style="cursor:pointer" data-goto-memory>${ic("brain").replace('class="i"', 'class="i" style="width:12px;height:12px"')} Remembered: ${esc(m.remembered[0])}${m.remembered.length > 1 ? ` (+${m.remembered.length - 1})` : ""}</span>` : ""}</div>
     </div></div>`;
-  }).join("") + (assistBusy ? `<div class="msg ai"><img src="/web/app-icon.svg" alt=""><div class="body"><div class="text typing"><i></i><i></i><i></i></div></div></div>` : "");
+  }).join("") + (assistBusy ? `<div class="msg ai"><img src="/web/app-icon.svg" alt=""><div class="body"><div class="text typing"><i></i><i></i><i></i></div><div style="margin-top:6px"><button class="btn sm danger ghost" data-as-stop style="display:inline-flex;gap:5px;align-items:center">${ic("stop")}Stop generating</button></div></div></div>` : "");
   $$("#chat [data-mi]").forEach(el => { if (+el.dataset.mi >= chatSeen) el.classList.add("msg-new"); });
   $("#chat .typing")?.closest(".msg")?.classList.add("msg-new");
   chatSeen = Math.max(chatSeen, CHAT.length);
@@ -1756,12 +1799,18 @@ async function runStep(mi, si, { auto = false } = {}) {
 async function advance(mi) {
   const m = CHAT[mi]; if (!m?.steps) return;
   for (;;) {
+    if (assistStopped) return;
     const si = m.steps.findIndex(s => (s.status || "pending") === "pending");
     if (si < 0) break;
     const s = m.steps[si];
-    if (s.risk === "read" && !s.terminal && SETTINGS.autoRunSafe) { await runStep(mi, si, { auto: true }); continue; }
+    if (s.risk === "read" && !s.terminal && SETTINGS.autoRunSafe) {
+      await runStep(mi, si, { auto: true });
+      if (assistStopped) return;
+      continue;
+    }
     return renderChat();  // wait for the user to run or skip this one
   }
+  if (assistStopped) return;
   const ran = m.steps.some(s => (s.status === "ok" || s.status === "fail") && !s.konsole);
   if (ran && !m.sent && SETTINGS.autoExplain && autoRounds < 4) sendResults(mi);
   else renderChat();
@@ -1776,14 +1825,48 @@ function sendResults(mi, manual = false) {
 async function askAssistant() {
   if (!aiReady()) return goAISetup();
   const last = CHAT.at(-1), answering = last?.role === "results" && last.quiet ? last.of : null;
-  assistBusy = true; renderChat({ bottom: last?.role === "user" });  // show your message and the typing dots
+  assistBusy = true;
+  assistStopped = false;
+  assistReqId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  assistAbort = new AbortController();
+  updateComposerState();
+  renderChat({ bottom: last?.role === "user" });  // show your message and the typing dots
   const msgs = CHAT.filter(m => ["user", "assistant", "guide", "results"].includes(m.role)).map(m =>
     m.role === "assistant" || m.role === "guide" ? { role: "assistant", text: (m.html ? m.reply.replace(/<[^>]+>/g, "") : m.reply) + (m.steps?.length ? "\nSteps proposed: " + m.steps.map((s, i) => `${i + 1}. ${s.title}: \`${s.cmd}\``).join("; ") : "") } : { role: m.role, text: m.text });
   const t0 = Date.now();
-  let r; try { r = await api("/api/assist", { messages: msgs, memory: !!SETTINGS.rememberChats, style: SETTINGS.assistStyle, effort: SETTINGS.assistEffort, }); } catch (e) { r = { error: "Couldn't reach the assistant: " + e.message }; }
+  let r;
+  try {
+    r = await api("/api/assist", { messages: msgs, memory: !!SETTINGS.rememberChats, style: SETTINGS.assistStyle, effort: SETTINGS.assistEffort, req_id: assistReqId }, { signal: assistAbort.signal });
+  } catch (e) {
+    if (e.name === "AbortError" || assistStopped) {
+      assistBusy = false;
+      assistAbort = null;
+      assistReqId = null;
+      updateComposerState();
+      return;
+    }
+    r = { error: "Couldn't reach the assistant: " + e.message };
+  }
+  if (assistStopped) {
+    assistBusy = false;
+    assistAbort = null;
+    assistReqId = null;
+    updateComposerState();
+    return;
+  }
   assistBusy = false;
+  assistAbort = null;
+  assistReqId = null;
+  updateComposerState();
   if (!r.error) notifyIfAway("The assistant answered", r.reply || "", t0);
-  if (r.error) { if (r.code === "setup") refreshAI().then(renderAINotice); CHAT.push({ role: "error", text: r.error, code: r.code }); renderChat({ focus: CHAT.length - 1 }); saveChat(); return; }
+  if (r.error) {
+    if (r.code === "stopped") return;
+    if (r.code === "setup") refreshAI().then(renderAINotice);
+    CHAT.push({ role: "error", text: r.error, code: r.code });
+    renderChat({ focus: CHAT.length - 1 });
+    saveChat();
+    return;
+  }
   const steps = (r.steps || []).map(s => ({ ...s, status: "pending" }));
   // Only-looking steps that the app will run and explain by itself: show them as a quick check under the answer
   const quick = steps.length > 0 && !r.done && steps.every(s => s.risk === "read" && !s.terminal) && SETTINGS.autoRunSafe && SETTINGS.autoExplain && autoRounds < 4;
@@ -1793,7 +1876,8 @@ async function askAssistant() {
   saveChat(); renderChat({ focus: CHAT.length - 1 }); advance(CHAT.length - 1);
 }
 function sendUser(text) {
-  text = text.trim(); if (!text || assistBusy) return;
+  if (assistBusy) { stopAssistant(); return; }
+  text = text.trim(); if (!text) return;
   if (Eggs.try(text)) return;
   if (!aiReady()) return goAISetup();
   autoRounds = 0; CHAT.push({ role: "user", text }); saveChat(); askAssistant();
@@ -1834,7 +1918,7 @@ async function renderHistory() {
 let asTab = () => {};
 loaders.assistant = () => {
   refreshAI().then(() => { renderAINotice(); renderAsOpts(); if (!aiReady() && !$("#as-chat")?.classList.contains("hidden") && !loaders.assistant.sent) { loaders.assistant.sent = true; goAISetup(); } });
-  renderChat(); applySettings(); setTimeout(() => $("#asInput")?.focus(), 50); Ghost.start();
+  renderChat(); applySettings(); updateComposerState(); setTimeout(() => $("#asInput")?.focus(), 50); Ghost.start();
   loadAISuggestions();
   api("/api/chats").then(list => Complete.learn([...CHAT.filter(m => m.role === "user").map(m => m.text).reverse(), ...list.map(c => c.title)])).catch(() => {});
 };
@@ -2680,7 +2764,10 @@ $("#asInput").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#asSend").click(); }
   if (e.key === "Tab" && !e.shiftKey && (Complete.accept() || Ghost.accept())) e.preventDefault();
   if (e.key === "ArrowRight" && Complete.active() && e.target.selectionStart === e.target.value.length) { e.preventDefault(); Complete.accept(); }
-  if (e.key === "Escape" && Complete.active()) { e.stopPropagation(); Complete.dismiss(); }
+  if (e.key === "Escape") {
+    if (Complete.active()) { e.stopPropagation(); Complete.dismiss(); return; }
+    if (assistBusy) { e.preventDefault(); stopAssistant(); return; }
+  }
 });
 $("#asInput").addEventListener("scroll", e => { $("#asGhost").scrollTop = e.target.scrollTop; });
 ["keyup", "click", "focus", "blur"].forEach(ev => $("#asInput").addEventListener(ev, e => { if (e.target.value && !["Tab", "Enter"].includes(e.key)) Complete.update(); }));
@@ -2801,8 +2888,9 @@ document.addEventListener("click", async e => {
   const ss = t.closest("[data-sstop]"); if (ss) { const [mi, si] = ss.dataset.sstop.split(":").map(Number); return api("/api/stop", { id: CHAT[mi].steps[si].jobId }); }
   const ex = t.closest("[data-explain]"); if (ex) return sendResults(+ex.dataset.explain, true);
   const cp = t.closest("[data-copy]"); if (cp) { navigator.clipboard.writeText(cp.dataset.copy); return toast("ok", "Command copied"); }
+  if (t.closest("[data-as-stop]")) return stopAssistant();
   if (t.closest("#as-chat.ai-off .composer")) return goAISetup();
-  if (t.closest("#asSend")) { const v = $("#asInput").value; $("#asInput").value = ""; $("#asInput").style.height = ""; Complete.clear(); Ghost.start(6000); return sendUser(v); }
+  if (t.closest("#asSend")) { if (assistBusy) return stopAssistant(); const v = $("#asInput").value; $("#asInput").value = ""; $("#asInput").style.height = ""; Complete.clear(); Ghost.start(6000); return sendUser(v); }
   if (t.closest("#chatClear")) { asTab("chat"); return newChat(); }
   const oc = t.closest("[data-open-chat]"); if (oc) { await openChat(oc.dataset.openChat); return asTab("chat"); }
   const dc = t.closest("[data-del-chat]"); if (dc) { const c = CHATS.find(x => x.id === dc.dataset.delChat); if (!(await modal({ title: "Delete this chat?", text: c?.title || "", okText: "Delete", danger: true, icon: "trash" }))) return; await api("/api/chat/delete", { id: dc.dataset.delChat }); if (dc.dataset.delChat === CHAT_ID) { CHAT = []; CHAT_ID = newChatId(); renderChat(); } return renderHistory(); }
@@ -2972,7 +3060,7 @@ function renderAINotice() {
   const off = !!AI && !AI.configured, chat = $("#as-chat"), inp = $("#asInput");
   chat?.classList.toggle("ai-off", off);
   if (inp) { inp.readOnly = off; if (off) { inp.value = ""; Ghost.stop(); } inp.placeholder = asPlaceholder(); }
-  if ($("#asSend")) $("#asSend").disabled = off;
+  if ($("#asSend") && !assistBusy) $("#asSend").disabled = off;
   const el = $("#aiNotice"); if (!el || !AI) return;
   el.innerHTML = AI.configured ? "" : `<div class="card pad ainotice">${tile("sparkles", "violet")}<div><b>Connect an AI to use the assistant</b><small>Use Claude with an Anthropic API key, or a key from OpenAI, Google Gemini, OpenRouter and others, or a free local model with Ollama. Guided fixes and tips work without one.</small></div><button class="btn primary" data-ai-setup>${ic("key")}Set up</button></div>`;
 }
@@ -3189,7 +3277,12 @@ document.addEventListener("keydown", e => {
   if (e.key === "F1") { e.preventDefault(); if (tourStep < 0) startTour(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#palette").classList.contains("open") ? closePalette() : openPalette(); }
   if (e.ctrlKey && e.key === "`") { e.preventDefault(); drawerOpen(!$("#drawer").classList.contains("open")); }
-  if (e.key === "Escape") { if ($("#palette").classList.contains("open")) closePalette(); else if ($("#modal").classList.contains("open")) modal.cancel?.(); else drawerOpen(false); }
+  if (e.key === "Escape") {
+    if (assistBusy) { stopAssistant(); return; }
+    if ($("#palette").classList.contains("open")) closePalette();
+    else if ($("#modal").classList.contains("open")) modal.cancel?.();
+    else drawerOpen(false);
+  }
 });
 
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset?.qt) { e.preventDefault(); runQtool(e.target.dataset.qt); } });

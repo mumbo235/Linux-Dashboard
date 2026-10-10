@@ -462,6 +462,8 @@ details.check pre.sout { margin: 0 12px 12px; }
 .composer .box { display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 8px 8px 8px 14px; box-shadow: var(--shadow-lg); }
 .composer .box:focus-within { border-color: var(--accent); }
 .composer textarea { flex: 1; border: 0; background: none; color: var(--text); font: inherit; resize: none; outline: 0; max-height: 160px; padding: 6px 0; }
+#asSend.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+#asSend.danger:hover { filter: brightness(1.1); }
 .composer .opts { display: flex; gap: 16px; padding: 7px 6px 0; font-size: 12px; color: var(--muted); flex-wrap: nowrap; min-height: 30px; }
 .composer .opts label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .composer .opts .sw { width: 30px; height: 18px; } .composer .opts .sw span::before { width: 14px; height: 14px; }

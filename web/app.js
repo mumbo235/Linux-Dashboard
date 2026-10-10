@@ -3010,7 +3010,10 @@ async function aiLoadModels() {
 async function aiSave() {
   aiReadForm();
   const key = $("#aiKey")?.value.trim() || "";
-  if (!AIFORM.model && AIFORM.provider === "anthropic") AIFORM.model = "claude-opus-5-5";
+  if (!AIFORM.model) {
+    const provDefaults = { anthropic: "claude-opus-5-5", gemini: "gemini-3.7-flash", openai: "gpt-4o", groq: "llama-3.3-70b-versatile", mistral: "mistral-large-latest", xai: "grok-2", deepseek: "deepseek-chat" };
+    if (provDefaults[AIFORM.provider]) AIFORM.model = provDefaults[AIFORM.provider];
+  }
   if (!AIFORM.model) { await aiLoadModels(); if (!AIFORM.model) return; }
   $("#aiSave").disabled = true; aiMsg("", `${ic("refresh")} Checking it works…`);
   const r = await api("/api/ai/save", { provider: AIFORM.provider, key, model: AIFORM.model, base_url: AIFORM.base_url }).catch(e => ({ error: e.message }));

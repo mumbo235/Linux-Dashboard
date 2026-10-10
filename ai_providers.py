@@ -26,18 +26,18 @@ PROVIDERS = {
     "anthropic": {"name": "Claude", "by": "Anthropic", "base": "https://api.anthropic.com", "keys": "https://console.anthropic.com/settings/keys",
                   "hint": "sk-ant-…", "default": "claude-opus-5-5", "prefer": [r"^claude-opus-5-5$", r"^claude-sonnet-5-5$", r"opus", r"sonnet"]},
     "openai": {"name": "ChatGPT models", "by": "OpenAI", "base": "https://api.openai.com/v1", "keys": "https://platform.openai.com/api-keys",
-               "hint": "sk-…", "prefer": [r"^gpt-5(\.\d+)?$", r"^gpt-5", r"^gpt-4\.1$", r"^gpt-4o$"]},
+               "hint": "sk-…", "default": "gpt-4o", "prefer": [r"^gpt-5(\.\d+)?$", r"^gpt-5", r"^gpt-4\.1$", r"^gpt-4o$"]},
     "gemini": {"name": "Gemini", "by": "Google", "base": "https://generativelanguage.googleapis.com/v1beta/openai", "keys": "https://aistudio.google.com/apikey",
-               "hint": "AIza…", "prefer": [r"gemini-[\d.]+-pro$", r"gemini-[\d.]+-flash$", r"gemini.*pro", r"gemini.*flash"]},
+               "hint": "AIza…", "default": "gemini-3.7-flash", "prefer": [r"gemini-[\d.]+-pro$", r"gemini-[\d.]+-flash$", r"gemini.*pro", r"gemini.*flash"]},
     "openrouter": {"name": "OpenRouter", "by": "Hundreds of models, one key", "base": "https://openrouter.ai/api/v1", "keys": "https://openrouter.ai/keys",
-                   "hint": "sk-or-…", "prefer": [r"^anthropic/claude-opus", r"^anthropic/claude-sonnet", r"^openai/gpt-5"]},
+                   "hint": "sk-or-…", "default": "anthropic/claude-sonnet-5-5", "prefer": [r"^anthropic/claude-opus", r"^anthropic/claude-sonnet", r"^openai/gpt-5"]},
     "groq": {"name": "Groq", "by": "Very fast open models", "base": "https://api.groq.com/openai/v1", "keys": "https://console.groq.com/keys",
-             "hint": "gsk_…", "prefer": [r"llama.*70b", r"gpt-oss-120b", r"llama"]},
+             "hint": "gsk_…", "default": "llama-3.3-70b-versatile", "prefer": [r"llama.*70b", r"gpt-oss-120b", r"llama"]},
     "mistral": {"name": "Mistral", "by": "Mistral AI", "base": "https://api.mistral.ai/v1", "keys": "https://console.mistral.ai/api-keys",
-                "hint": "", "prefer": [r"^mistral-large-latest$", r"^mistral-medium-latest$", r"large"]},
-    "xai": {"name": "Grok", "by": "xAI", "base": "https://api.x.ai/v1", "keys": "https://console.x.ai", "hint": "xai-…", "prefer": [r"^grok-\d+$", r"grok"]},
+                "hint": "", "default": "mistral-large-latest", "prefer": [r"^mistral-large-latest$", r"^mistral-medium-latest$", r"large"]},
+    "xai": {"name": "Grok", "by": "xAI", "base": "https://api.x.ai/v1", "keys": "https://console.x.ai", "hint": "xai-…", "default": "grok-2", "prefer": [r"^grok-\d+$", r"grok"]},
     "deepseek": {"name": "DeepSeek", "by": "DeepSeek", "base": "https://api.deepseek.com/v1", "keys": "https://platform.deepseek.com/api_keys",
-                 "hint": "sk-…", "prefer": [r"deepseek-chat", r"deepseek"]},
+                 "hint": "sk-…", "default": "deepseek-chat", "prefer": [r"deepseek-chat", r"deepseek"]},
     "ollama": {"name": "Ollama", "by": "Free, runs on this computer", "base": "http://localhost:11434/v1", "keys": "https://ollama.com/download",
                "hint": "", "nokey": True, "prefer": [r"qwen.*\d\d+b", r"llama3", r"qwen", r"mistral", r"gemma"]},
     "custom": {"name": "Other", "by": "Any OpenAI-compatible server", "base": "", "keys": "", "hint": "", "custom": True, "prefer": []},
@@ -238,7 +238,7 @@ def status():
 
 # ---------- talking to the providers ----------
 
-def _http(url, body=None, key="", timeout=180, extra=None):
+def _http(url, body=None, key="", timeout=180, extra=None, retries=3):
     headers = {"Content-Type": "application/json", "User-Agent": "LinuxDashboard/0.1"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -252,7 +252,7 @@ def _http(url, body=None, key="", timeout=180, extra=None):
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as e:
-            if e.code in (500, 502, 503, 504, 529) and attempt < 3:
+            if e.code in (500, 502, 503, 504, 529) and attempt < retries:
                 time.sleep((2, 4, 8)[attempt])
                 continue
             return _raise_http(e)
@@ -314,9 +314,11 @@ def list_models(provider, key=None, base=None):
             raise AIError("Type the server's address first, e.g. http://localhost:8080/v1", "base")
         data = _http(url + "/models", key=key, timeout=20)
         ids = [(m["id"].removeprefix("models/"), m.get("name") or m.get("display_name") or "") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
-        ids = [(i, n) for i, n in ids if not NOT_CHAT.search(i)]
+        ids = [(i, n) for i, n in ids if not NOT_CHAT.search(i) and not re.search(r"^gemini-[12]\.", i)]
+    def _ver_tuple(mid):
+        return tuple(float(x) for x in re.findall(r"\d+(?:\.\d+)?", re.sub(r"\d{8}", "", mid))) or (0.0,)
     rank = lambda i: next((n for n, rx in enumerate(p.get("prefer", [])) if re.search(rx, i)), 99)
-    ids.sort(key=lambda x: (rank(x[0]), x[0]))
+    ids.sort(key=lambda x: (rank(x[0]), tuple(-v for v in _ver_tuple(x[0])), x[0]))
     return [{"id": i, "name": n if n and n != i else ""} for i, n in ids]
 
 
@@ -417,7 +419,7 @@ def _ask_openai_style(cfg, key, system, prompt, schema, effort, max_tokens):
         body["reasoning_effort"] = effort
     for attempt in range(4):  # step down to what this server understands
         try:
-            data = _http(url, body, key=key, timeout=240)
+            data = _http(url, body, key=key, timeout=240, retries=cfg.get("_retries", 3))
             break
         except AIError as e:
             if not e.code.startswith("http4") or attempt == 3:
@@ -471,9 +473,50 @@ def ask_json(system, prompt, schema, effort="medium", max_tokens=16000):
     effort = effort if effort in ("low", "medium", "high") else "medium"
     t = time.time()
     fn = _ask_anthropic if p == "anthropic" else _ask_openai_style
-    out, info = fn(cfg, key, system, prompt, schema, effort, max_tokens)
-    info["seconds"] = round(time.time() - t, 1)
-    return _fill(schema, out), info
+    tried, err = [], None
+    for m in _candidates(cfg):  # the chosen model first; if it's overloaded or gone, quietly try its siblings
+        c = dict(cfg, model=m, _retries=1 if len(tried) == 0 and len(_candidates(cfg)) > 1 else 2)
+        try:
+            out, info = fn(c, key, system, prompt, schema, effort, max_tokens)
+        except AIError as e:
+            err = err or e
+            tried.append(m)
+            if e.code in ("server", "model", "timeout", "limit") and len(tried) < 4:
+                continue
+            raise err if e.code in ("server", "model", "timeout", "limit") else e
+        if tried:
+            info["fallback"] = f"{tried[0]} was busy, answered with {m}"
+        info["seconds"] = round(time.time() - t, 1)
+        return _fill(schema, out), info
+    raise err
+
+
+KNOWN_FALLBACKS = {
+    "gemini": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"],
+    "anthropic": ["claude-sonnet-5-5", "claude-haiku-4-5", "claude-opus-5-5"],
+    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4.1"],
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    "mistral": ["mistral-large-latest", "mistral-medium-latest"],
+    "deepseek": ["deepseek-chat"],
+}
+
+
+def _candidates(cfg):
+    """The configured model, then similar ones this key can use (newest flash first, then lite, then pro)."""
+    p = cfg.get("provider", "")
+    first = cfg.get("model") or PROVIDERS.get(p, {}).get("default", "")
+    ids = [m["id"] for m in (cfg.get("models") or []) if isinstance(m, dict) and m.get("id") and not NOT_CHAT.search(m["id"]) and m["id"] != first]
+    ids = [i for i in ids if not re.search(r"^gemini-[12]\.|preview|live|omni|robotics|nano|banana|veo|lyria|tts|image|customtools|aqa|antigravity|translate|gemma", i)]
+    def ver(mid):
+        return tuple(int(x) for x in re.findall(r"\d+", mid)[:3]) or (0,)
+    def rank(mid):
+        kind = 0 if re.search(r"flash(?!-lite)", mid) else 1 if "lite" in mid else 2 if "pro" in mid else 3
+        return (kind, tuple(-v for v in ver(mid)))
+    sorted_ids = sorted(ids, key=rank)
+    if not sorted_ids and p in KNOWN_FALLBACKS:
+        sorted_ids = [m for m in KNOWN_FALLBACKS[p] if m != first]
+    cands = [first] + [m for m in sorted_ids if m != first]
+    return [c for i, c in enumerate(cands) if c and c not in cands[:i]][:6]
 
 
 def test(cfg, key):
@@ -482,9 +525,22 @@ def test(cfg, key):
     save(cfg)
     try:
         fn = _ask_anthropic if cfg["provider"] == "anthropic" else _ask_openai_style
-        out, info = fn(cfg, key, "Reply with JSON only.", 'Say {"ok": true}.',
-                       {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}, "low", 2000)
-        return info
+        candidates = _candidates(cfg)
+        err = None
+        for m in candidates:
+            c = dict(cfg, model=m, _retries=1)
+            try:
+                out, info = fn(c, key, "Reply with JSON only.", 'Say {"ok": true}.',
+                               {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}, "low", 2000)
+                cfg["model"] = m
+                info["model"] = m
+                return info
+            except AIError as e:
+                err = err or e
+                if e.code in ("server", "model", "timeout", "limit"):
+                    continue
+                raise
+        raise err or AIError("Could not connect to this provider with the selected model.", "model")
     finally:
         if old:
             save(old)

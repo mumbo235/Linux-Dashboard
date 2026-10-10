@@ -1046,7 +1046,7 @@ loaders.power = async () => {
     const bat = b.batteries[0];
     const isCharging = bat.status.toLowerCase() === "charging";
     const isFull = bat.status.toLowerCase() === "full";
-    const statColor = isCharging ? "green" : isFull ? "teal" : "amber";
+    const statColor = isCharging ? "green" : isFull ? "teal" : (bat.capacity < 30 ? "red" : bat.capacity < 60 ? "amber" : "blue");
     const statIcon = isCharging ? "zap" : "battery";
     const precise = (bat.exact_pct != null ? Number(bat.exact_pct).toFixed(1) : bat.capacity.toFixed(1)) + "%";
 

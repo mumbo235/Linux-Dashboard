@@ -660,6 +660,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/bluetooth": controls.bluetooth_devices,
             "/api/drives": controls.drives,
             "/api/kdeconnect": controls.kdeconnect,
+            "/api/app/update_check": controls.check_app_update,
+            "/api/battery_care": lambda: {"supported": controls.battery_care_supported(), "limit": controls.battery_care_get()},
         }
         if url.path in routes:
             try:
@@ -703,6 +705,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": bool(p)})
         if path == "/api/control":
             return self.set_control(body)
+        if path == "/api/app/update_apply":
+            installer_url = str(body.get("url") or "").strip()
+            if not installer_url or not installer_url.startswith("https://github.com/mumbo235/Linux-Dashboard/"):
+                return self._send(400, {"error": "Invalid installer URL"})
+            tmp_installer = Path("/tmp/linux-dashboard-update.sh")
+            try:
+                import urllib.request
+                req = urllib.request.Request(installer_url, headers={"User-Agent": "Linux-Dashboard"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    tmp_installer.write_bytes(resp.read())
+                tmp_installer.chmod(0o755)
+                # Spawn in background so it can update the app
+                subprocess.Popen(["bash", str(tmp_installer), "--yes"], cwd=str(Path.home()),
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                return self._send(200, {"ok": True, "message": "Update started in background. App will update automatically."})
+            except Exception as e:
+                return self._send(500, {"error": f"Failed to download/run update: {e}"})
         if path == "/api/assist":
             return self._send(200, assistant.ask(body.get("messages", []), bool(body.get("memory", True)),
                                                 body.get("effort", "medium"), body.get("style", "short"), body.get("model") or None))

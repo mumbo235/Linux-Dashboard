@@ -466,7 +466,9 @@ const A = {
   clearCache: { t: "Clear app cache", d: "~/.cache. Safe, apps rebuild it", i: "broom", c: "pink", btn: "Clear", cmd: `du -sh ~/.cache; rm -rf ~/.cache/* && echo "Cache cleared."`, confirm: "Deletes everything in ~/.cache. Apps rebuild what they need. Close your web browser first.", after: "storage" },
   emptyTrash: { t: "Empty trash", d: "Permanently delete trashed files", i: "trash", c: "red", btn: "Empty", cmd: `du -sh ~/.local/share/Trash 2>/dev/null; rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* && echo "Trash emptied."`, confirm: "Files in the trash will be permanently deleted.", after: "storage" },
   pkgCache: { t: "Old package downloads", d: `Installer files ${PLAT.manager || "the package manager"} keeps around`, i: "package", c: "violet", btn: "Clean", admin: true, cmd: PLAT.pkg.cache_dir && PLAT.pkg.cache_clean ? `du -sh ${PLAT.pkg.cache_dir}; ${PLAT.pkg.cache_clean}; du -sh ${PLAT.pkg.cache_dir}` : "", after: "storage" },
+  cleanFlatpak: { t: "Unused Flatpak runtimes", d: "Removes old libraries no app is using", i: "box", c: "teal", btn: "Clean", cmd: `flatpak uninstall --unused -y 2>/dev/null || echo "No unused Flatpak runtimes found"`, after: "storage" },
   journalVacuum: { t: "System logs", d: "Keep only the last 2 weeks", i: "scroll", c: "slate", btn: "Shrink", admin: true, cmd: `journalctl --disk-usage; pkexec journalctl --vacuum-time=2weeks; journalctl --disk-usage`, after: "storage" },
+  cleanAllJunk: { t: "Clean all safe junk", d: "Package cache, user cache, trash, and unused Flatpaks", i: "sparkles", c: "amber", btn: "Clean All", admin: true, cmd: `echo "=== 1. Emptying Trash ==="; rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo "=== 2. Cleaning Flatpak ==="; flatpak uninstall --unused -y 2>/dev/null || true; echo "=== 3. Cleaning package cache ==="; ${PLAT.pkg.cache_clean || "true"}; echo "=== 4. Vacuuming journals ==="; pkexec journalctl --vacuum-time=2weeks 2>/dev/null || true; echo "All safe junk cleaned!"`, confirm: "This cleans trash, package installer caches, unused Flatpaks, and trims old logs.", after: "storage" },
   trim: { t: "Optimize SSD (TRIM)", d: "Tell the SSD which blocks are free", i: "sparkles", c: "green", admin: true, cmd: `pkexec fstrim -av` },
   smart: { t: "Drive health check", d: "SMART status for every disk", i: "heart", c: "red", admin: true, cmd: `pkexec bash -c 'for d in $(lsblk -dnpo NAME -e7,11); do echo "== $d"; smartctl -H -A "$d" | tail -n +4; echo; done'` },
   restartAudio: PIPEWIRE ? { t: "Fix sound", d: "Restart PipeWire audio", i: "wrench", c: "pink", cmd: `systemctl --user restart pipewire pipewire-pulse wireplumber && sleep 1 && echo "Audio restarted." && wpctl status | head -40` }
@@ -1025,7 +1027,30 @@ PAGES.power = () => pageHead("power", "Sleep, screen lock, performance and power
     sel("autosleep", "moon", "indigo", "Go to sleep after", "", mins([5, 10, 15, 30, 60, 120, 180]), { kw: "suspend" }),
     sel("autolock", "lock", "slate", "Lock screen after", "", [[0, "Never"], ...[1, 2, 5, 10, 15, 30, 60].map(m => [m, `${m} minute${m > 1 ? "s" : ""}`])]),
     tog("lockresume", "shield", "green", "Lock when waking from sleep", "Ask for your password after sleep"))) +
+  `<div id="batteryCareSec"></div>` +
   sec("Power") + acts(["lock", "suspend", "logout", "reboot", "poweroff", "firmware"]);
+loaders.power = async () => {
+  const b = await api("/api/battery_care").catch(() => null);
+  const el = $("#batteryCareSec");
+  if (!el) return;
+  if (b?.supported) {
+    el.innerHTML = sec("Battery health") + group(
+      custom("battery", "green", "Charging limit", "Stop charging at 80% to prolong battery lifespan",
+        `<div style="display:flex;align-items:center;gap:12px"><b id="batLimVal">${b.limit}%</b><input type="range" id="batLim" min="60" max="100" step="5" value="${b.limit}" style="width:140px"><button class="btn sm" id="batLimApply">Set</button></div>`,
+        { admin: true, kw: "battery charge threshold health care" })
+    );
+    const slider = $("#batLim");
+    if (slider) {
+      slider.oninput = () => { $("#batLimVal").textContent = slider.value + "%"; };
+      $("#batLimApply").onclick = async () => {
+        await setCtl("battery_care", +slider.value, { label: `Battery limit ${slider.value}%` });
+        toast("ok", `Battery limit set to ${slider.value}%`);
+      };
+    }
+  } else {
+    el.innerHTML = "";
+  }
+};
 
 /* ---------- TIME ---------- */
 PAGES.time = () => pageHead("time", "Clock, time zone and computer name.") +
@@ -1119,7 +1144,9 @@ PAGES.services = () => pageHead("services", "What starts when you turn on the co
     tog("svc_libvirtd", "box", "violet", "Virtual machines (libvirt)", "Needed for your VMs"),
     tog("svc_fstrim.timer", "sparkles", "green", "Weekly SSD TRIM", "Keeps your SSD fast. Recommended"),
     tog("svc_paccache.timer", "package", "orange", "Weekly package cache cleanup", "Needs pacman-contrib installed")) +
-  sec("Apps that open when you log in") + `<div class="group" id="autostart"></div>` +
+  sec("Apps that open when you log in") +
+  `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn sm primary" id="addAutostartBtn">${ic("plus")}Add startup app</button></div>` +
+  `<div class="group" id="autostart"></div>` +
   sec("All services") +
   `<div class="field">${segHtml("svcScope", [["system", "System"], ["user", "My user"]], "system")}${segHtml("svcShow", [["running", "Running"], ["failed", "Failed"], ["all", "All"]], "running")}<input type="search" id="svcFilter" placeholder="Filter, e.g. bluetooth"></div>
   <div class="group" style="margin-top:12px"><div class="scroll" id="svcTable"></div></div>`;
@@ -1139,7 +1166,28 @@ function renderSvcs() {
 }
 async function loadAutostart() {
   const a = await api("/api/autostart");
-  $("#autostart").innerHTML = a.map(e => `<div class="row">${tile(e.system ? "cog" : "rocket", e.system ? "slate" : "indigo", "soft")}<div class="txt"><b>${esc(e.name)}</b><small>${esc(e.comment || e.file)}${e.system ? " · part of the desktop, leave on unless you know why" : ""}</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-autostart="${esc(e.file)}" ${e.enabled ? "checked" : ""}><span></span></label></div></div>`).join("") || empty("rocket", "No startup apps");
+  $("#autostart").innerHTML = a.map(e => `<div class="row">${tile(e.system ? "cog" : "rocket", e.system ? "slate" : "indigo", "soft")}<div class="txt"><b>${esc(e.name)}</b><small>${esc(e.comment || e.file)}${e.system ? " · part of the desktop, leave on unless you know why" : ""}</small></div><div class="ctl" style="display:flex;align-items:center;gap:10px">${e.user ? `<button class="btn sm ghost" data-autostart-rm="${esc(e.file)}" title="Remove startup entry">${ic("trash")}</button>` : ""}<label class="sw"><input type="checkbox" data-autostart="${esc(e.file)}" ${e.enabled ? "checked" : ""}><span></span></label></div></div>`).join("") || empty("rocket", "No startup apps");
+  const addBtn = $("#addAutostartBtn");
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const name = prompt("Application Name (e.g. My Script):");
+      if (!name) return;
+      const cmd = prompt("Command or program path to run:");
+      if (!cmd) return;
+      await setCtl("autostart_add", { name, exec: cmd });
+      toast("ok", `Added ${name} to startup`);
+      loadAutostart();
+    };
+  }
+  $$("#autostart [data-autostart-rm]").forEach(btn => {
+    btn.onclick = async () => {
+      const file = btn.dataset.autostartRm;
+      if (!confirm(`Remove ${file} from startup?`)) return;
+      await setCtl("autostart_remove:" + file, true);
+      toast("ok", "Removed startup item");
+      loadAutostart();
+    };
+  });
 }
 loaders.services = () => { loadSvcs(); loadAutostart(); };
 
@@ -1147,7 +1195,7 @@ loaders.services = () => { loadSvcs(); loadAutostart(); };
 PAGES.storage = () => pageHead("storage", "See where your space went and clean it up.") +
   `<div class="grid2" id="drivesList"></div>` +
   sec("Memory") + group(tog("zram", "memory", "violet", "Compressed memory (zram)", "Extra breathing room when RAM fills up, by compressing what isn't being used. A good safety net, especially without a swap file", { kw: "swap zram ram" })) +
-  sec("Free up space") + group(actRow("clearCache"), actRow("emptyTrash"), actRow("pkgCache"), actRow("journalVacuum")) +
+  sec("Free up space") + group(actRow("cleanAllJunk"), actRow("clearCache"), actRow("emptyTrash"), actRow("pkgCache"), actRow("cleanFlatpak"), actRow("journalVacuum")) +
   sec("Find files") + `<div class="field"><input type="text" id="findName" placeholder="Part of the file name, e.g. resume"><input type="text" id="findIn" placeholder="In folder (default: home)" style="max-width:240px"><button class="btn primary" id="findGo">${ic("filesearch")}Find</button></div>` +
   sec("Open a folder") + `<div style="display:flex;gap:8px;flex-wrap:wrap" id="folders"></div>` +
   sec("Tools") + acts(["bigFolders", "bigFiles", "drives", "trim", "smart"]);
@@ -2395,8 +2443,9 @@ const CHANGES = [
 PAGES.about = () => `
   <div class="about-hero card"><img src="/web/app-icon.svg" alt="" class="about-logo"><div>
     <h1>Linux Dashboard</h1>
-    <div class="about-tags"><button class="chip accent plain vertap" data-vertap>Version ${esc(APP_VERSION)}</button><span class="chip warn plain">Early preview</span><span class="chip plain">Running on ${esc(PLAT.distro || "Linux")} · ${esc(PLAT.desktopName || "")}</span></div>
+    <div class="about-tags"><button class="chip accent plain vertap" data-vertap>Version ${esc(APP_VERSION)}</button><span class="chip warn plain">Early preview</span><span class="chip plain">Running on ${esc(PLAT.distro || "Linux")} · ${esc(PLAT.desktopName || "")}</span><span id="updateTag"></span></div>
     <p>Everything you'd normally do in a terminal, with buttons, switches and plain-English explanations, plus a helper that does the typing for you. Built for people who find Linux confusing, so it's never a mystery what your computer is doing.</p>
+    <div id="updateBanner" style="margin-top:12px"></div>
   </div></div>
   ${sec("What it does")}<div class="actions">${FEATURES.map(([i, c, t, d]) => `<div class="act" style="--tc:var(--c-${c});cursor:default">${tile(i, c)}<div><b>${t}</b><small>${d}</small></div></div>`).join("")}</div>
   <div class="grid2" style="margin-top:14px">
@@ -2423,6 +2472,38 @@ loaders.about = async () => {
   const c = a.counts;
   $("#aboutData").innerHTML = `<div class="row"><div class="txt"><b>Everything stays on this computer</b><small>${c.chats} saved chat${c.chats === 1 ? "" : "s"} · ${c.memory} thing${c.memory === 1 ? "" : "s"} the assistant remembers · ${c.favorites} saved command${c.favorites === 1 ? "" : "s"} · ${c.suggestions} personal suggestions</small></div>
     <div class="ctl"><button class="btn" data-launch-path="${esc(a.config_dir)}">${ic("folder")}Settings folder</button><button class="btn" data-launch-path="${esc(a.app_dir)}">${ic("folder")}App folder</button><button class="btn" data-nav="settings">${ic("cog")}Settings</button></div></div>`;
+
+  // In-app self update check
+  const u = await api("/api/app/update_check").catch(() => null);
+  const ban = $("#updateBanner"), tag = $("#updateTag");
+  if (u && ban) {
+    if (u.has_update) {
+      if (tag) tag.innerHTML = `<span class="chip good">Update available: v${esc(u.latest)}</span>`;
+      ban.innerHTML = `<div class="callout good" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0">
+        <div><b>Linux Dashboard ${esc(u.latest)} is ready!</b><br><small style="color:var(--muted)">Current version: ${esc(u.current)}</small></div>
+        <div style="display:flex;gap:8px"><a class="btn sm" href="${esc(u.release_url || '#')}" target="_blank">${ic("external")}Release notes</a>
+        <button class="btn sm primary" id="applyUpdateBtn">${ic("download")}Update now</button></div></div>`;
+      const upBtn = $("#applyUpdateBtn");
+      if (upBtn) {
+        upBtn.onclick = async () => {
+          upBtn.disabled = true;
+          upBtn.textContent = "Updating…";
+          toast("info", "Downloading and applying update in background…");
+          const res = await api("/api/app/update_apply", { method: "POST", body: { url: u.installer_url } }).catch(e => ({ error: e.message }));
+          if (res?.ok) {
+            toast("ok", "Update started! The dashboard will reload once complete.");
+          } else {
+            toast("bad", res?.error || "Failed to start update.");
+            upBtn.disabled = false;
+            upBtn.textContent = "Update now";
+          }
+        };
+      }
+    } else {
+      if (tag) tag.innerHTML = `<span class="chip plain">Up to date</span>`;
+      ban.innerHTML = "";
+    }
+  }
 };
 
 /* ---------- PROBLEM REPORTS: anyone can send one about the dashboard, and read the replies ---------- */

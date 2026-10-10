@@ -18,6 +18,7 @@ import platform_info as plat
 q = shlex.quote
 ENV = dict(os.environ, LANG="C.UTF-8", NO_COLOR="1")
 HOME = Path.home()
+APP_DIR = Path(__file__).resolve().parent
 DND_MARK = "linux-dashboard-dnd"
 AWAKE_MARK = "linux-dashboard-keepawake"
 QDBUS = plat.QDBUS
@@ -768,6 +769,7 @@ CONTROLS = {
     "svc_libvirtd": (lambda: svc_get("libvirtd"), svc_set("libvirtd"), True),
     "svc_fstrim.timer": (lambda: svc_get("fstrim.timer"), svc_set("fstrim.timer"), True),
     "svc_paccache.timer": (lambda: svc_get("paccache.timer"), svc_set("paccache.timer"), True),
+    "battery_care": (lambda: battery_care_get(), lambda v: battery_care_cmd(v), True),
 }
 
 
@@ -1049,6 +1051,13 @@ def command_for(cid, value):
     m = re.fullmatch(r"autostart:(.+\.desktop)", cid)
     if m:
         return autostart_cmd(m.group(1), bool(value)), False
+    m = re.fullmatch(r"autostart_remove:(.+\.desktop)", cid)
+    if m:
+        return autostart_remove_cmd(m.group(1)), False
+    if cid == "autostart_add":
+        return autostart_add_cmd(value.get("name", ""), value.get("exec", ""), value.get("comment", "")), False
+    if cid == "battery_care":
+        return battery_care_cmd(value), True
     m = re.fullmatch(r"btdev:(/org/bluez/[\w/]+)", cid)
     if m:
         return f"busctl call org.bluez {m.group(1)} org.bluez.Device1 {'Connect' if value else 'Disconnect'}", False
@@ -1365,6 +1374,23 @@ def autostart_cmd(fname, enabled):
     return " && ".join(steps)
 
 
+def autostart_remove_cmd(fname):
+    user = HOME / ".config" / "autostart" / fname
+    system = Path("/etc/xdg/autostart") / fname
+    if system.exists():
+        return autostart_cmd(fname, False)
+    return f"rm -f {q(str(user))} && echo 'Removed {fname}'"
+
+
+def autostart_add_cmd(name, exec_cmd, comment=""):
+    safe_id = re.sub(r"[^\w.-]", "-", name.lower()).strip("-") or "custom-app"
+    fname = f"{safe_id}.desktop"
+    dst = HOME / ".config" / "autostart" / fname
+    content = f"[Desktop Entry]\nType=Application\nName={name}\nExec={exec_cmd}\nComment={comment}\nX-GNOME-Autostart-enabled=true\n"
+    return f"mkdir -p ~/.config/autostart && printf %s {q(content)} > {q(str(dst))} && echo 'Added {name} to startup'"
+
+
+
 def bluetooth_devices():
     if sh("systemctl is-active bluetooth") != "active":
         return {"available": False, "devices": []}
@@ -1412,3 +1438,73 @@ def drives():
 def kdeconnect():
     out = sh("kdeconnect-cli -a --id-name-only 2>/dev/null")
     return [{"id": l.split(" ", 1)[0], "name": l.split(" ", 1)[1] if " " in l else l} for l in out.splitlines() if l.strip()]
+
+
+# ---------- battery charge threshold (battery health) ----------
+def battery_nodes():
+    nodes = []
+    for b in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        end_lim = b / "charge_control_end_threshold"
+        max_lim = b / "charge_control_limit_max"
+        thresh = b / "charge_stop_threshold"
+        node = end_lim if end_lim.exists() else max_lim if max_lim.exists() else thresh if thresh.exists() else None
+        if node:
+            nodes.append(node)
+    return nodes
+
+
+def battery_care_supported():
+    return bool(battery_nodes())
+
+
+def battery_care_get():
+    for n in battery_nodes():
+        val = to_int(read(n, "100"))
+        if val > 0:
+            return val
+    return 100
+
+
+def battery_care_cmd(limit):
+    limit = max(50, min(100, int(limit)))
+    nodes = battery_nodes()
+    if not nodes:
+        raise ValueError("No battery charge threshold control found on this hardware")
+    writes = " && ".join(f"echo {limit} > {q(str(n))}" for n in nodes)
+    return f"pkexec bash -c {q(writes)} && echo 'Battery charge limit set to {limit}%'"
+
+
+# ---------- in-app self update checker ----------
+REPO_SLUG = "mumbo235/Linux-Dashboard"
+
+
+def check_app_update():
+    import urllib.request
+    current_ver = read(APP_DIR / "VERSION", "1.0").strip() if "APP_DIR" in globals() else "1.0"
+    url = f"https://api.github.com/repos/{REPO_SLUG}/releases/latest"
+    req = urllib.request.Request(url, headers={"User-Agent": "Linux-Dashboard", "Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            tag = data.get("tag_name", "").lstrip("v")
+            installer_url = None
+            for asset in data.get("assets", []):
+                if asset.get("name") == "linux-dashboard-install.sh":
+                    installer_url = asset.get("browser_download_url")
+                    break
+            has_update = False
+            if tag:
+                c_parts = [int(p) for p in re.findall(r"\d+", current_ver)]
+                t_parts = [int(p) for p in re.findall(r"\d+", tag)]
+                has_update = t_parts > c_parts
+            return {
+                "current": current_ver,
+                "latest": tag,
+                "has_update": has_update,
+                "installer_url": installer_url,
+                "release_url": data.get("html_url"),
+                "notes": data.get("body", ""),
+            }
+    except Exception as e:
+        return {"current": current_ver, "latest": None, "has_update": False, "error": str(e)}
+

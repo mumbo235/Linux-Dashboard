@@ -1449,6 +1449,7 @@ def battery_info():
         now = to_int(read(b / "charge_now" if (b / "charge_now").exists() else b / "energy_now", "0"))
         cycles = to_int(read(b / "cycle_count", "0"))
         status = read(b / "status", "Unknown")
+        capacity = to_int(read(b / "capacity", "0"))
         voltage = to_int(read(b / "voltage_now", "0")) / 1000000
         current = to_int(read(b / "current_now", "0")) / 1000000
         power = to_int(read(b / "power_now", "0")) / 1000000

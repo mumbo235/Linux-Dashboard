@@ -588,14 +588,17 @@ class Handler(BaseHTTPRequestHandler):
         return self._allowed() and secrets.compare_digest(self.headers.get("X-Token", ""), TOKEN)
 
     def _send(self, code, body, ctype="application/json"):
-        data = body if isinstance(body, bytes) else (
-            json.dumps(body) if ctype == "application/json" else body).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            data = body if isinstance(body, bytes) else (
+                json.dumps(body) if ctype == "application/json" else body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_GET(self):
         if not self._allowed():

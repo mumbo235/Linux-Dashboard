@@ -44,8 +44,17 @@ def free_port():
 
 
 def start_server():
-    server.PORT = free_port()
-    httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
+    server.ThreadingHTTPServer.allow_reuse_address = True
+    for _ in range(5):
+        server.PORT = free_port()
+        try:
+            httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
+            break
+        except OSError:
+            continue
+    else:
+        server.PORT = 0
+        httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
     httpd.daemon_threads = True
     server.ADMIN.serve()  # remembered-password admin session (see rootsession.py)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

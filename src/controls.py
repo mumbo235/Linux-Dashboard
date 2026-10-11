@@ -19,6 +19,8 @@ q = shlex.quote
 ENV = dict(os.environ, LANG="C.UTF-8", NO_COLOR="1")
 HOME = Path.home()
 APP_DIR = Path(__file__).resolve().parent
+if not (APP_DIR / "web").is_dir() and (APP_DIR.parent / "web").is_dir():
+    APP_DIR = APP_DIR.parent
 DND_MARK = "linux-dashboard-dnd"
 AWAKE_MARK = "linux-dashboard-keepawake"
 QDBUS = plat.QDBUS
@@ -272,7 +274,7 @@ OD_BIN = "/usr/local/lib/linux-dashboard/fan-overdrive"
 OD_UNIT = "linux-dashboard-fans.service"
 OD_CONF = Path("/etc/linux-dashboard-fans")
 # The helper script and its service live in ~/linux-dashboard/system/ and get copied into place.
-OD_SRC = Path(__file__).resolve().parent / "system"
+OD_SRC = APP_DIR / "system"
 
 
 def od_install():

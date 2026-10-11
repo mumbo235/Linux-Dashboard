@@ -42,6 +42,8 @@ os.environ["PATH"] = ":".join([d for d in _dirs if "linuxbrew" not in d] + [d fo
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("DASHBOARD_PORT", "8765"))
 APP_DIR = Path(__file__).resolve().parent
+if not (APP_DIR / "web").is_dir() and (APP_DIR.parent / "web").is_dir():
+    APP_DIR = APP_DIR.parent
 WEB_DIR = APP_DIR / "web"
 try:  # e.g. "alpha 0.4": `bash build.sh --bump` raises it by 0.1 for each major update
     VERSION = (APP_DIR / "VERSION").read_text().strip() or VERSION
@@ -403,7 +405,7 @@ def about():
                 family=plat.FAMILY_NAME)
     info["counts"] = {"chats": len(assistant.list_chats()), "memory": len(assistant.load_memory()),
                       "favorites": len(load_favorites()), "suggestions": len(assistant.saved_suggestions().get("phrases", []))}
-    info["lines"] = sum(len(f.read_text().splitlines()) for f in list(APP_DIR.glob("*.py")) + list(WEB_DIR.glob("*.*")) if f.suffix in (".py", ".js", ".css", ".html"))
+    info["lines"] = sum(len(f.read_text().splitlines()) for f in list(APP_DIR.glob("*.py")) + list((APP_DIR / "src").glob("*.py")) + list(WEB_DIR.glob("*.*")) if f.suffix in (".py", ".js", ".css", ".html"))
     return info
 
 
@@ -531,7 +533,7 @@ def dev_info():
     me = os.getpid()
     kids = [int(p) for p in sh(["pgrep", "-P", str(me)]).split()]
     web = [int(p) for p in sh(["pgrep", "-f", "WebKitWebProcess|WebKitNetworkProcess"]).split()]
-    files = {f.name: f.stat().st_size for f in sorted(list(APP_DIR.glob("*.py")) + list(WEB_DIR.glob("*.*")))}
+    files = {f.name: f.stat().st_size for f in sorted(list(APP_DIR.glob("*.py")) + list((APP_DIR / "src").glob("*.py")) + list(WEB_DIR.glob("*.*")))}
     return {"pid": me, "port": PORT, "version": VERSION, "uptime": round(time.time() - APP_STARTED), "threads": threading.active_count(),
             "rss_app": rss(me), "rss_web": sum(rss(p) for p in web), "children": len(kids),
             "python": sys.version.split()[0], "files": files, "config": {f.name: f.stat().st_size for f in CONFIG_DIR.glob("*") if f.is_file()},

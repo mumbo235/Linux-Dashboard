@@ -89,7 +89,9 @@ def main():
         print("Generate a token with 'repo' scope at: https://github.com/settings/tokens")
         sys.exit(1)
 
-    dist_dir = Path(__file__).resolve().parent / "dist"
+    dist_dir = Path(__file__).resolve().parent.parent / "dist"
+    if not dist_dir.is_dir():
+        dist_dir = Path(__file__).resolve().parent / "dist"
     assets = [
         dist_dir / "linux-dashboard-install.sh",
         dist_dir / "linux-dashboard_1.0.0-1_all.deb",

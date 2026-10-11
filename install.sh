@@ -50,9 +50,14 @@ for a in "$@"; do
   case "$a" in
     --here) HERE=1 ;;
     --yes|-y) YES=1 ;;
-    --uninstall) u="$(dirname "${BASH_SOURCE[0]}")/uninstall.sh"
-                 for b in "$@"; do [ "$b" = --purge ] && exec bash "$u" --purge; done
-                 exec bash "$u" ;;
+    --uninstall)
+      if [ -f "$(dirname "${BASH_SOURCE[0]}")/scripts/uninstall.sh" ]; then
+        u="$(dirname "${BASH_SOURCE[0]}")/scripts/uninstall.sh"
+      else
+        u="$(dirname "${BASH_SOURCE[0]}")/uninstall.sh"
+      fi
+      for b in "$@"; do [ "$b" = --purge ] && exec bash "$u" --purge; done
+      exec bash "$u" ;;
     -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unknown option: $a"; exit 1 ;;
   esac
@@ -270,9 +275,9 @@ asroot() { if [ "$GUI" = 1 ]; then pkexec "$@"; else sudo "$@"; fi; }
 SRC=""
 for d in "$HERE_DIR" "$HERE_DIR/linux-dashboard" "$HERE_DIR"/*/; do
   d="${d%/}"
-  if [ -f "$d/app.py" ] && [ -f "$d/server.py" ] && [ -d "$d/web" ]; then SRC="$d"; break; fi
+  if [ -f "$d/app.py" ] && { [ -f "$d/server.py" ] || [ -f "$d/src/server.py" ]; } && [ -d "$d/web" ]; then SRC="$d"; break; fi
 done
-[ -n "$SRC" ] || fail "Can't find the app's files (app.py, server.py, web/). Keep install.sh inside the linux-dashboard folder and run it from there."
+[ -n "$SRC" ] || fail "Can't find the app's files (app.py, server.py or src/, web/). Keep install.sh inside the linux-dashboard folder and run it from there."
 
 # The system's own Python (Homebrew/pyenv Pythons don't have the GTK bindings)
 PY=/usr/bin/python3
@@ -352,18 +357,20 @@ if [ "$HERE" = 1 ] || [ "$SRC" = "$DEST" ]; then
   ok "Using the app from $APP"
 else
   mkdir -p "$DEST"
-  rm -rf "$DEST/web" "$DEST/icons" "$DEST/system" "$DEST/__pycache__" "$DEST"/*.py  # old versions' files go too
+  rm -rf "$DEST/web" "$DEST/icons" "$DEST/system" "$DEST/src" "$DEST/scripts" "$DEST/__pycache__" "$DEST"/*.py  # old versions' files go too
+  [ -d "$SRC/src" ] && cp -r "$SRC/src" "$DEST"/
+  [ -d "$SRC/scripts" ] && cp -r "$SRC/scripts" "$DEST"/
   cp -r "$SRC"/*.py "$SRC/VERSION" "$SRC/web" "$SRC/icons" "$DEST"/
   [ -d "$SRC/system" ] && cp -r "$SRC/system" "$DEST"/
-  for f in install.sh uninstall.sh README.md LICENSE; do [ -f "$SRC/$f" ] && cp "$SRC/$f" "$DEST"/; done
-  chmod +x "$DEST"/*.sh "$DEST/app.py" 2>/dev/null || true
+  for f in install.sh README.md LICENSE; do [ -f "$SRC/$f" ] && cp "$SRC/$f" "$DEST"/; done
+  chmod +x "$DEST"/*.sh "$DEST/app.py" "$DEST/src/app.py" 2>/dev/null || true
   APP="$DEST"
   ok "Copied the app to $APP"
 fi
 
 step 55 "Checking the app works"
 # Make sure it actually loads before adding it anywhere
-if ! err="$(cd "$APP" && timeout 60 "$PY" -c 'import sys; sys.path.insert(0, "."); import server' 2>&1)"; then
+if ! err="$(cd "$APP" && timeout 60 "$PY" -c 'import sys; sys.path.insert(0, "."); sys.path.insert(0, "src"); import server' 2>&1)"; then
   echo "$err" | tail -5 | sed 's/^/    /'
   fail "The app's files didn't load (the reason is in the log). Try copying the installer again."
 fi

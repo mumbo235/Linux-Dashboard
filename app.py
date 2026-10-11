@@ -15,9 +15,10 @@ from pathlib import Path
 import gi
 
 
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import Gio, GLib, Gtk, WebKit  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import batlog  # noqa: E402
@@ -99,6 +100,37 @@ class DashboardApp(Gtk.Application):
         view = WebKit.WebView(network_session=session)
         view.get_settings().set_enable_developer_extras(False)
         view.get_settings().set_enable_back_forward_navigation_gestures(False)
+
+        # Disable all native touchpad pinch-to-zoom and gesture zooming
+        controllers = view.observe_controllers()
+        for i in range(controllers.get_n_items()):
+            c = controllers.get_item(i)
+            if isinstance(c, Gtk.GestureZoom):
+                view.remove_controller(c)
+
+        # Intercept any pinch gestures in CAPTURE phase before WebKit handles them
+        no_zoom = Gtk.GestureZoom.new()
+        no_zoom.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        no_zoom.connect("scale-changed", lambda g, s: g.set_state(Gtk.EventSequenceState.CLAIMED))
+        view.add_controller(no_zoom)
+
+        # Intercept Ctrl+Scroll so touchpad pinch / Ctrl+wheel doesn't zoom natively
+        scroll_ctl = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES | Gtk.EventControllerScrollFlags.KINETIC)
+        scroll_ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        def on_scroll(ctl, dx, dy):
+            state = ctl.get_current_event_state()
+            if state & Gdk.ModifierType.CONTROL_MASK:
+                return True
+            return False
+        scroll_ctl.connect("scroll", on_scroll)
+        view.add_controller(scroll_ctl)
+
+        # Lock WebKit's native zoom_level to 1.0 (zoom is safely handled via CSS layout zoom in settings)
+        def on_zoom_change(wv, pspec):
+            if wv.get_zoom_level() != 1.0:
+                wv.set_zoom_level(1.0)
+        view.connect("notify::zoom-level", on_zoom_change)
+
         view.connect("decide-policy", self.on_policy)
         self.inspector = False
         view.connect("context-menu", lambda *a: not self.inspector)  # no browser-style right-click menu (unless the developer inspector is on)

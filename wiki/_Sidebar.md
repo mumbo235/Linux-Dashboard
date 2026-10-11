@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="Home"><img src="https://raw.githubusercontent.com/mumbo235/Linux-Dashboard/main/web/app-icon.svg" width="70" height="70" alt="Linux Dashboard"></a>
+</p>
+
 ### [Linux Dashboard](Home)
 
 - **[Home](Home)**

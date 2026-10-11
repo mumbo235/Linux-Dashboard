@@ -32,3 +32,18 @@ Alternatively, via terminal:
 ```bash
 rm -rf ~/.config/linux-dashboard/settings.json
 ```
+
+---
+
+## 🐛 Still having issues or need help?
+
+If you encounter any bugs, crashes, or unexpected behavior:
+
+> [!TIP]
+> Please open an issue on the **[GitHub Issues Page](https://github.com/mumbo235/Linux-Dashboard/issues)**!
+>
+> When reporting an issue, please include:
+> - **Distribution & Desktop**: (e.g. Linux Mint Cinnamon, Ubuntu GNOME, Arch KDE)
+> - **Description**: What you expected to happen vs what actually happened
+> - **Log output**: Check `~/.cache/linux-dashboard/app.log` (or run `cat ~/.cache/linux-dashboard/app.log`)
+

@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/mumbo235/Linux-Dashboard">
+    <img src="https://raw.githubusercontent.com/mumbo235/Linux-Dashboard/main/web/app-icon.svg" width="120" height="120" alt="Linux Dashboard">
+  </a>
+</p>
+
 # Welcome to the Linux Dashboard Wiki
 
 **Linux Dashboard** brings native desktop control, system monitoring, and an agentic AI assistant into a modern, responsive interface built specifically for Linux.

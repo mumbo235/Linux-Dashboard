@@ -1,9 +1,25 @@
-# Linux Dashboard 1.4
+<p align="center">
+  <a href="https://github.com/mumbo235/Linux-Dashboard">
+    <img src="web/app-icon.svg" width="128" height="128" alt="Linux Dashboard Logo">
+  </a>
+</p>
 
-Everything you'd normally do in a terminal, with buttons, switches and plain-English explanations,
-plus an AI assistant that plans and runs tasks safely for you.
+<h1 align="center">Linux Dashboard</h1>
 
-📖 **[Read the Documentation & Wiki](https://github.com/mumbo235/Linux-Dashboard/wiki)** (also available in the [`wiki/`](wiki/) folder).
+<p align="center">
+  <b>Everything you'd normally do in a terminal, with buttons, switches and plain-English explanations, plus an AI assistant that plans and runs tasks safely for you.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/mumbo235/Linux-Dashboard/releases"><img src="https://img.shields.io/github/v/release/mumbo235/Linux-Dashboard?label=Release" alt="Release"></a>
+  <a href="https://github.com/mumbo235/Linux-Dashboard/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
+  <a href="https://github.com/mumbo235/Linux-Dashboard/issues"><img src="https://img.shields.io/github/issues/mumbo235/Linux-Dashboard" alt="Issues"></a>
+  <a href="https://github.com/mumbo235/Linux-Dashboard/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
+</p>
+
+---
+
+📖 **[Read the Documentation & Wiki](https://github.com/mumbo235/Linux-Dashboard/wiki)** (also available in the [`wiki/`](wiki/) folder) • **[Report an Issue](https://github.com/mumbo235/Linux-Dashboard/issues)**
 
 ## Install
 
@@ -108,6 +124,10 @@ Settings, chats and notes are stored per user in `~/.config/linux-dashboard/`.
 | "This installer file is damaged" | The copy got cut short. Copy `linux-dashboard-install.sh` again |
 | Installing packages fails | Your account needs to be an administrator (in the `wheel` or `sudo` group), or ask one to install them |
 | Pages look out of date after an update | Press Ctrl+R in the app, or quit (Ctrl+Q) and reopen it |
+
+> [!TIP]
+> **Still having an issue or spotted a bug?**
+> Please open an issue on the **[GitHub Issues page](https://github.com/mumbo235/Linux-Dashboard/issues)** with your distro details and the startup log (`~/.cache/linux-dashboard/app.log`).
 
 Each user who wants the dashboard installs it for themselves; it never changes another user's settings.
 

@@ -1,7 +1,9 @@
-# Linux Dashboard 1.0
+# Linux Dashboard 1.4
 
 Everything you'd normally do in a terminal, with buttons, switches and plain-English explanations,
-plus an assistant that does the typing for you. Coded by Claude.
+plus an AI assistant that plans and runs tasks safely for you.
+
+📖 **[Read the Documentation & Wiki](https://github.com/mumbo235/Linux-Dashboard/wiki)** (also available in the [`wiki/`](wiki/) folder).
 
 ## Install
 

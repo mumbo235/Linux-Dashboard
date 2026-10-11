@@ -98,6 +98,7 @@ class DashboardApp(Gtk.Application):
         session = WebKit.NetworkSession.new(str(DATA_DIR), str(CACHE_DIR))
         view = WebKit.WebView(network_session=session)
         view.get_settings().set_enable_developer_extras(False)
+        view.get_settings().set_enable_back_forward_navigation_gestures(False)
         view.connect("decide-policy", self.on_policy)
         self.inspector = False
         view.connect("context-menu", lambda *a: not self.inspector)  # no browser-style right-click menu (unless the developer inspector is on)

@@ -2254,9 +2254,21 @@ const SYSTEM_FONT = 'system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-ser
 const fontStack = fam => fam ? `"${fam.replace(/"/g, "")}", ${SYSTEM_FONT}` : SYSTEM_FONT;
 // the real installed family name for a curated font (fontconfig names can vary a little)
 const installedAs = f => !f.family ? "" : FAMILIES?.find(x => x.toLowerCase() === f.family.toLowerCase()) || FAMILIES?.find(x => x.toLowerCase().startsWith(f.family.toLowerCase())) || null;
+const ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25];
+function setZoom(val, showToast = false) {
+  val = Math.max(0.7, Math.min(1.5, Math.round((+val || 1) * 100) / 100));
+  SETTINGS.fontScale = val;
+  saveSettings();
+  applyFont();
+  if (showToast) toast("ok", `Zoom: ${Math.round(val * 100)}%`);
+}
 function applyFont() {
   document.documentElement.style.setProperty("--font", fontStack(SETTINGS.font));
-  document.body.style.zoom = SETTINGS.fontScale && SETTINGS.fontScale !== 1 ? SETTINGS.fontScale : "";
+  const z = SETTINGS.fontScale && SETTINGS.fontScale !== 1 ? SETTINGS.fontScale : "";
+  document.body.style.zoom = z;
+  const curScale = +(SETTINGS.fontScale || 1);
+  $$("#zoomLevel button, #fontScale button").forEach(b => b.classList.toggle("on", Math.abs(+b.dataset.v - curScale) < 0.04));
+  const el = $("#zoomCurrent"); if (el) el.textContent = Math.round(curScale * 100) + "%";
 }
 async function loadFonts(force) {
   if (!FAMILIES || force) FAMILIES = await api("/api/fonts").catch(() => []);
@@ -2277,7 +2289,9 @@ function renderFonts() {
   const cur = SETTINGS.font || "";
   $("#fontCurrent").textContent = cur ? cur : "System default";
   $("#fontPreview").style.fontFamily = fontStack($("#fontPick").value.trim() || cur);
-  $$("#fontScale button").forEach(b => b.classList.toggle("on", +b.dataset.v === +(SETTINGS.fontScale || 1)));
+  const curScale = +(SETTINGS.fontScale || 1);
+  $$("#zoomLevel button, #fontScale button").forEach(b => b.classList.toggle("on", Math.abs(+b.dataset.v - curScale) < 0.04));
+  const el = $("#zoomCurrent"); if (el) el.textContent = Math.round(curScale * 100) + "%";
 }
 function useFont(fam) { setPref("font", fam || ""); applyFont(); renderFonts(); toast("ok", `Font: ${fam || "System default"}`); }
 
@@ -2305,10 +2319,11 @@ PAGES.settings = () => pageHead("settings", "Make this app work the way you like
     custom("box", "violet", "Corners", "", prefSeg("corners", [["square", "Square"], ["round", "Rounded"], ["extra", "Extra round"]])),
     custom("layers", "indigo", "Spacing", "Compact fits more on screen", prefSeg("density", [["comfortable", "Comfortable"], ["compact", "Compact"]]), { kw: "density compact layout" }),
     custom("width", "cyan", "Page width", "On big screens", prefSeg("pageWidth", [["narrow", "Narrow"], ["normal", "Normal"], ["full", "Full"]]), { kw: "width wide content" }),
+    custom("scale", "blue", "Interface zoom", "Cleanly scale the entire window (Ctrl+ / Ctrl-)", segHtml("zoomLevel", [["0.8", "80%"], ["0.9", "90%"], ["1", "100%"], ["1.1", "110%"], ["1.25", "125%"]], String(SETTINGS.fontScale || 1)), { kw: "zoom scale size magnification touchbar touchpad gesture" }),
     custom("terminal", "slate", "Output panel size", "", prefSeg("drawerHeight", [["small", "Small"], ["medium", "Medium"], ["large", "Large"]])),
     prefTog("reduceMotion", "pause", "slate", "Reduce motion", "Turns off animations")) +
   ssec("font") + `<div class="group" id="fontSection">
-    ${rowWrap(reg({ title: "Font", desc: "Change the font of the whole app", icon: "type", color: "indigo", kw: "font typeface text terminal hack" }), "type", "indigo", "Font", `Now using: <b id="fontCurrent">System default</b>`, segHtml("fontScale", [["0.9", "Small"], ["1", "Normal"], ["1.1", "Large"], ["1.25", "Larger"]], "1"))}
+    ${rowWrap(reg({ title: "Font & text size", desc: "Change the font and scale of the whole app", icon: "type", color: "indigo", kw: "font typeface text terminal zoom scale" }), "type", "indigo", "Font & text size", `Now using: <b id="fontCurrent">System default</b> · Zoom: <b id="zoomCurrent">${Math.round((SETTINGS.fontScale || 1) * 100)}%</b>`, segHtml("fontScale", [["0.8", "80%"], ["0.9", "90%"], ["1", "100%"], ["1.1", "110%"], ["1.25", "125%"]], String(SETTINGS.fontScale || 1)))}
     <div class="fontgrid" id="fontGrid"></div>
     <div class="fontprev" id="fontPreview">The quick brown fox jumps over the lazy dog · 0123456789</div>
     ${rowWrap(reg({ title: "Any font on this computer", desc: "Custom font", icon: "search", color: "blue", kw: "custom font installed" }), "search", "blue", "Other installed font", "", `<input type="text" id="fontPick" list="fontList" placeholder="e.g. Noto Sans Mono" style="width:240px"><datalist id="fontList"></datalist><button class="btn" id="fontPickUse">Use</button>`)}
@@ -2868,7 +2883,7 @@ document.addEventListener("click", async e => {
     if (window.webkit?.messageHandlers?.pick) return window.webkit.messageHandlers.pick.postMessage("font");
     const p = await modal({ title: "Add a font file", text: "Full path to the .ttf or .otf file:", input: { placeholder: HOME + "/Downloads/MyFont.ttf" }, okText: "Add", icon: "type", color: "indigo" });
     if (p) addFontFile(p.replace(/^~/, HOME)); return; }
-  const fsb = t.closest("#fontScale button"); if (fsb) { setPref("fontScale", +fsb.dataset.v); applyFont(); return renderFonts(); }
+  const fsb = t.closest("#fontScale button, #zoomLevel button"); if (fsb) { setZoom(+fsb.dataset.v, true); return renderFonts(); }
   const ao = t.closest("[data-asopen]"); if (ao) { const box = ao.parentElement, was = box.classList.contains("open"); $$("[data-asopt]").forEach(b => b.classList.remove("open")); box.classList.toggle("open", !was); return renderAsOpts(); }
   const apm = t.closest('[data-aspick="aiModel"]'); if (apm) { $$("[data-asopt]").forEach(b => b.classList.remove("open")); return setAIModel(apm.dataset.v); }
   const ap = t.closest("[data-aspick]"); if (ap) { $$("[data-asopt]").forEach(b => b.classList.remove("open")); setPref(ap.dataset.aspick, ap.dataset.v); return; }
@@ -3277,6 +3292,27 @@ document.addEventListener("keydown", e => {
   if (e.key === "F1") { e.preventDefault(); if (tourStep < 0) startTour(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#palette").classList.contains("open") ? closePalette() : openPalette(); }
   if (e.ctrlKey && e.key === "`") { e.preventDefault(); drawerOpen(!$("#drawer").classList.contains("open")); }
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === "=" || e.key === "+") {
+      e.preventDefault();
+      const cur = +(SETTINGS.fontScale || 1);
+      const next = ZOOM_LEVELS.find(z => z > cur + 0.04) || 1.25;
+      setZoom(next, true);
+      return;
+    }
+    if (e.key === "-" || e.key === "_") {
+      e.preventDefault();
+      const cur = +(SETTINGS.fontScale || 1);
+      const prev = [...ZOOM_LEVELS].reverse().find(z => z < cur - 0.04) || 0.8;
+      setZoom(prev, true);
+      return;
+    }
+    if (e.key === "0") {
+      e.preventDefault();
+      setZoom(1, true);
+      return;
+    }
+  }
   if (e.key === "Escape") {
     if (assistBusy) { stopAssistant(); return; }
     if ($("#palette").classList.contains("open")) closePalette();
@@ -3284,6 +3320,16 @@ document.addEventListener("keydown", e => {
     else drawerOpen(false);
   }
 });
+
+// Prevent touchpad pinch-to-zoom and gesture zooming (keeps UI layout intact)
+window.addEventListener("wheel", e => {
+  if (e.ctrlKey) e.preventDefault();
+}, { passive: false });
+window.addEventListener("gesturestart", e => e.preventDefault());
+window.addEventListener("gesturechange", e => e.preventDefault());
+window.addEventListener("gestureend", e => e.preventDefault());
+window.addEventListener("touchstart", e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
+window.addEventListener("touchmove", e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset?.qt) { e.preventDefault(); runQtool(e.target.dataset.qt); } });
 

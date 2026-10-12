@@ -1060,3 +1060,72 @@ details.tk-mine > .pad { border-top: 1px solid var(--hair); }
 #palette .empty { padding: 18px 10px 6px; }
 #palette input { color: var(--text); caret-color: var(--accent); }
 #palette input::placeholder { color: var(--muted); opacity: 1; }
+
+/* ================= Modular Dashboard & Home Widgets ================= */
+.home-widgets-container { display: flex; flex-direction: column; gap: 18px; margin-top: 14px; }
+.home-widget { display: flex; flex-direction: column; position: relative; transition: opacity .2s, border-color .2s; }
+.home-widget[data-widget-visible="false"] { display: none; }
+
+/* Edit mode for Home widgets */
+body.navediting .home-widget[data-widget-visible="false"] { display: flex; opacity: .55; outline: 2px dashed var(--border); border-radius: 14px; }
+body.navediting .widget-edit-bar { display: flex; }
+.widget-edit-bar { display: none; align-items: center; justify-content: space-between; padding: 7px 12px; background: color-mix(in srgb, var(--accent) 10%, var(--panel2)); border: 1px dashed var(--accent); border-radius: 11px; margin-bottom: 8px; }
+.widget-drag-handle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); user-select: none; }
+.widget-drag-handle svg { width: 16px; height: 16px; color: var(--muted); }
+.widget-controls { display: flex; align-items: center; gap: 4px; }
+.widget-controls .btn.off { opacity: .6; color: var(--muted); }
+
+/* AI System Doctor & Health Card */
+.ai-health-card { border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--panel); border-radius: 14px; }
+.ai-health-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+.ai-health-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-health-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.ai-health-badge svg { width: 14px; height: 14px; }
+.ai-health-summary { font-size: 13.5px; color: var(--text2); font-weight: 500; }
+.ai-health-empty { display: flex; align-items: center; gap: 14px; padding: 14px 4px 6px; color: var(--text2); }
+.ai-health-empty b { display: block; font-size: 13.5px; color: var(--text); }
+.ai-health-empty small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.ai-health-issues { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.ai-health-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; background: var(--panel2); border: 1px solid var(--border); border-radius: 11px; }
+.ai-health-item.critical { border-left: 4px solid var(--bad); }
+.ai-health-item.warning { border-left: 4px solid var(--warn); }
+.ai-health-item-info { min-width: 0; flex: 1; }
+.ai-health-item-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.ai-health-item-desc { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.ai-health-cmd { margin-top: 6px; }
+.ai-health-cmd code { font-size: 11.5px; font-family: ui-monospace, monospace; background: var(--hover); padding: 2px 7px; border-radius: 5px; color: var(--text2); }
+.ai-fix-btn { gap: 6px; font-weight: 600; flex-shrink: 0; }
+.ai-fix-btn svg { width: 14px; height: 14px; }
+
+/* Live Network Speedometer */
+.net-speedometer-card { border: 1px solid var(--border); background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); }
+.net-speed-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.net-speed-title { display: flex; align-items: center; gap: 10px; }
+.net-speed-title b { display: block; font-size: 14px; }
+.net-speed-title small { display: block; color: var(--muted); font-size: 12px; }
+.net-speed-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.net-gauge-box { padding: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 11px; text-align: left; }
+.net-gauge-lbl { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.net-gauge-lbl svg { width: 13px; height: 13px; }
+.net-gauge-box.rx .net-gauge-lbl { color: var(--c-teal); }
+.net-gauge-box.tx .net-gauge-lbl { color: var(--c-indigo); }
+.net-gauge-val { font-size: 24px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: 4px 0 2px; color: var(--text); }
+.net-gauge-sub { font-size: 11.5px; color: var(--muted); }
+.net-speed-spark-box { width: 100%; border-top: 1px solid var(--hair); padding-top: 8px; }
+
+/* Quick Scratchpad & Notes */
+.notes-card { border: 1px solid var(--border); background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); }
+.notes-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.notes-title { display: flex; align-items: center; gap: 10px; }
+.notes-title b { display: block; font-size: 14px; }
+.notes-title small { display: block; color: var(--muted); font-size: 12px; }
+.notes-textarea { width: 100%; resize: vertical; min-height: 90px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel2); color: var(--text); font-family: inherit; font-size: 13.5px; line-height: 1.5; outline: none; transition: border-color .15s; }
+.notes-textarea:focus { border-color: var(--accent); }
+.notes-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+/* Quick Actions Widget */
+.quickactions-card { border: 1px solid var(--border); background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); }
+.quickactions-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.custom-act-del { margin-left: auto; opacity: 0; color: var(--muted); transition: opacity .15s; }
+body.navediting .custom-act-del { opacity: 1; }
+

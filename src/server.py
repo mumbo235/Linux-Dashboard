@@ -54,6 +54,7 @@ MIME = {".html": "text/html", ".css": "text/css", ".js": "application/javascript
 CONFIG_DIR = Path.home() / ".config" / "linux-dashboard"
 FAVORITES_FILE = CONFIG_DIR / "favorites.json"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
+NOTES_FILE = CONFIG_DIR / "notes.txt"
 TOKEN = secrets.token_urlsafe(24)
 
 JOBS = {}  # job id -> Popen
@@ -220,6 +221,141 @@ def diskinfo():
         "flatpaks": len(sh(["flatpak", "list", "--app", "--columns=application"]).split()),
         "failed": len(sh("systemctl --failed --no-legend --plain; systemctl --user --failed --no-legend --plain").splitlines()),
     }
+
+
+def get_notes():
+    if NOTES_FILE.is_file():
+        try:
+            return {"text": NOTES_FILE.read_text(encoding="utf-8", errors="replace")}
+        except Exception as e:
+            return {"text": "", "error": str(e)}
+    return {"text": ""}
+
+
+def save_notes(text):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        NOTES_FILE.write_text(str(text or ""), encoding="utf-8")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def system_health():
+    """Comprehensive system diagnostic check for failed services, resources, and hardware."""
+    issues = []
+
+    # 1. Failed systemd units (system and user)
+    try:
+        raw_failed = sh(["bash", "-c", "systemctl --failed --no-legend --plain 2>/dev/null; systemctl --user --failed --no-legend --plain 2>/dev/null"], 5).splitlines()
+        for line in raw_failed:
+            parts = line.strip().split()
+            if parts:
+                unit = parts[0]
+                is_crit = any(k in unit for k in ("dbus", "systemd", "network", "display", "pipewire", "xorg", "wayland"))
+                issues.append({
+                    "id": f"failed-unit-{unit}",
+                    "severity": "critical" if is_crit else "warning",
+                    "title": f"Failed Service: {unit}",
+                    "desc": f"Unit {unit} failed to start or exited with an error.",
+                    "fix_prompt": f"My system diagnostic reports that systemd service '{unit}' has failed. Please check its status and journal logs, explain why it failed, and prepare safe commands to fix or restart it.",
+                    "quick_cmd": f"systemctl status {unit}",
+                })
+    except Exception:
+        pass
+
+    # 2. Memory pressure
+    try:
+        mem = meminfo()
+        total = mem.get("MemTotal", 0)
+        avail = mem.get("MemAvailable", 0)
+        if total > 0 and (avail / total) < 0.10:
+            used_pct = round((1 - avail / total) * 100)
+            avail_gb = round(avail / 1024 / 1024, 1)
+            issues.append({
+                "id": "mem-critical",
+                "severity": "critical" if (avail / total) < 0.05 else "warning",
+                "title": f"Memory Pressure ({used_pct}% used)",
+                "desc": f"Only {avail_gb} GB of available RAM remains.",
+                "fix_prompt": "My system is running very low on RAM. Please inspect which processes are consuming the most memory and guide me through safely freeing up RAM.",
+                "quick_cmd": "ps -eo pid,comm,%mem --sort=-%mem | head -n 10",
+            })
+    except Exception:
+        pass
+
+    # 3. Disk space pressure (>90% full)
+    try:
+        root_usage = shutil.disk_usage("/")
+        if root_usage.total > 0 and (root_usage.used / root_usage.total) > 0.90:
+            used_pct = round(root_usage.used / root_usage.total * 100)
+            free_gb = round((root_usage.total - root_usage.used) / (1024**3), 1)
+            issues.append({
+                "id": "disk-root-full",
+                "severity": "critical" if used_pct > 95 else "warning",
+                "title": f"Root Disk Low ({free_gb} GB free, {used_pct}% used)",
+                "desc": f"The root filesystem is {used_pct}% full.",
+                "fix_prompt": "My root filesystem is almost full. Please help me inspect large log files, package caches, and unnecessary files so I can safely reclaim disk space.",
+                "quick_cmd": "df -h /",
+            })
+    except Exception:
+        pass
+
+    # 4. Temperature pressure (>85°C)
+    try:
+        t = temperature()
+        if t and t > 85:
+            issues.append({
+                "id": "temp-high",
+                "severity": "critical" if t > 92 else "warning",
+                "title": f"High System Temperature ({t}°C)",
+                "desc": "Thermal sensors indicate the CPU or chassis is running hot.",
+                "fix_prompt": f"My computer temperature is {t}°C, which is unusually high. Please help me inspect CPU-intensive tasks and check fan speeds to cool it down.",
+                "quick_cmd": "top -b -n 1 | head -n 15",
+            })
+    except Exception:
+        pass
+
+    # 5. Runaway CPU processes (>90% CPU)
+    try:
+        top_procs = sh(["bash", "-c", "ps -eo pid,comm,%cpu --sort=-%cpu --no-headers 2>/dev/null | head -n 3"], 5).splitlines()
+        for p in top_procs:
+            parts = p.strip().split()
+            if len(parts) >= 3:
+                try:
+                    cpu_val = float(parts[2])
+                    if cpu_val > 90.0:
+                        issues.append({
+                            "id": f"cpu-hog-{parts[0]}",
+                            "severity": "warning",
+                            "title": f"High CPU Load: {parts[1]} ({cpu_val}%)",
+                            "desc": f"Process {parts[1]} (PID {parts[0]}) is consuming {cpu_val}% CPU.",
+                            "fix_prompt": f"Process {parts[1]} with PID {parts[0]} is consuming {cpu_val}% CPU. Please investigate why it is running hot and help me resolve it safely.",
+                            "quick_cmd": f"ps -p {parts[0]} -u",
+                        })
+                except ValueError:
+                    pass
+    except Exception:
+        pass
+
+    status = "healthy"
+    if any(x["severity"] == "critical" for x in issues):
+        status = "critical"
+    elif issues:
+        status = "warning"
+
+    summary = (
+        "All systems optimal. No failed units or performance bottlenecks detected."
+        if not issues else
+        f"{len(issues)} issue{'s' if len(issues) > 1 else ''} detected that may need attention."
+    )
+
+    return {
+        "status": status,
+        "summary": summary,
+        "issues": issues,
+        "timestamp": time.time(),
+    }
+
 
 
 THUMB_ROOTS = ("/usr/share/wallpapers/", "/usr/share/backgrounds/", str(Path.home() / "Pictures") + "/")
@@ -638,6 +774,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/chats": assistant.list_chats,
             "/api/chat": lambda: assistant.get_chat(q.get("id", "")),
             "/api/memory": assistant.load_memory,
+            "/api/notes": get_notes,
+            "/api/system/health": system_health,
             "/api/suggestions": assistant.saved_suggestions,
             "/api/fonts": fonts,
             "/api/admin/status": ADMIN.status,
@@ -867,6 +1005,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/memory":
             assistant.save_memory([m for m in body.get("items", []) if isinstance(m, dict) and m.get("text")])
             return self._send(200, {"ok": True})
+        if path == "/api/notes":
+            return self._send(200, save_notes(body.get("text", "")))
+        if path == "/api/system/health/scan":
+            return self._send(200, system_health())
         if path == "/api/settings":
             save_settings(body.get("settings", {}))
             return self._send(200, {"ok": True})

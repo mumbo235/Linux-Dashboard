@@ -351,6 +351,18 @@ def memory_prompt():
     return "\n\nNotes you saved in earlier chats (may be out of date):\n" + "\n".join(f"- [{m['date']}] {m['text']}" for m in mem)
 
 
+def notes_prompt():
+    notes_file = Path.home() / ".config" / "linux-dashboard" / "notes.txt"
+    if notes_file.is_file():
+        try:
+            txt = notes_file.read_text(encoding="utf-8", errors="replace").strip()
+            if txt:
+                return "\n\nUser's Dashboard Scratchpad Notes:\n```\n" + txt[:2000] + "\n```\n(You may reference these notes, answer questions about them, or suggest updates if helpful.)"
+        except Exception:
+            pass
+    return ""
+
+
 def _chat_path(cid):
     if not re.fullmatch(r"[a-z0-9]{6,24}", str(cid)):
         raise ValueError("bad chat id")
@@ -411,7 +423,7 @@ def ask(messages, use_memory=True, effort="medium", style="short", model=None, r
             CANCELLED_REQUESTS.discard(str(req_id))
         return {"error": "Stopped by user", "code": "stopped"}
     import ai_providers as ai
-    system = system_prompt() + STYLES.get(style, "") + (memory_prompt() if use_memory else "")
+    system = system_prompt() + STYLES.get(style, "") + (memory_prompt() if use_memory else "") + notes_prompt()
     prompt = ("Conversation so far:\n\n" + transcript(messages) +
               "\n\nRespond to the latest message as JSON matching the schema.")
     try:

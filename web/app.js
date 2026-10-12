@@ -29,7 +29,10 @@ const DEFAULTS = { startPage: "home", lastPage: "home", tiles: ["wifi", "bluetoo
   showSliders: true, showSuggest: true, showLive: true, showActions: true, showPower: true, refresh: 2, toasts: true, autoOpen: true, maximized: false, autoRunSafe: true, autoExplain: true, showTip: true, rememberChats: true, aiComplete: true, font: "", fontScale: 1, navLayout: null, sideWidth: 0, fanLimit: 0, adminRemember: 300, warnHarm: true,
   appAccent: "", bgTint: "subtle", bgStyle: "plain", cardStyle: "outlined", iconStyle: "filled", pageWidth: "normal", trueBlack: false, density: "comfortable", corners: "round", reduceMotion: false, sideCompact: false, drawerHeight: "medium",
   name: "", tempUnit: "C", clock24: false, notifyDone: true, soundDone: false, assistStyle: "short", assistEffort: "medium",
-  hiddenPages: [], contrast: false, updateCheck: "daily", autoCloseDrawer: false, showCost: true, graphLen: "120" };
+  hiddenPages: [], contrast: false, updateCheck: "daily", autoCloseDrawer: false, showCost: true, graphLen: "120",
+  homeWidgets: ["sliders", "aiHealth", "hardware", "network", "quickActions", "notes", "power"],
+  widgetVisible: { sliders: true, aiHealth: true, hardware: true, network: true, quickActions: true, notes: true, power: true },
+  customActions: [] };
 let SETTINGS = { ...DEFAULTS };
 const saveSettings = debounce(() => api("/api/settings", { settings: SETTINGS }), 400);
 
@@ -719,29 +722,285 @@ const PAGES = {};
 /* ---------- HOME ---------- */
 const QS = [["wifi", "Wi-Fi", "wifi"], ["bluetooth", "Bluetooth", "bluetooth"], ["airplane", "Airplane mode", "plane"], ["dark", "Dark mode", "moon"],
   ["nightlight", "Night light", "sunset"], ["dnd", "Do not disturb", "belloff"], ["awake", "Keep awake", "coffee"], ["performance", "Performance", "zap"]].filter(([id]) => hasCtl(id));
-PAGES.home = () => {
-  QS.forEach(([id, t, i]) => reg({ title: t, desc: "Quick setting", icon: i, color: "blue", ctl: id, anchor: "qs-" + id }));
-  return `<div class="hero"><div><h1 id="greeting">Hello</h1><p id="sysline">Loading…</p></div><div class="clock"><b id="clock">--:--</b><small id="date"></small></div></div>
-  <div class="qs">${QS.map(([id, t, i]) => `<button class="qt" id="qs-${id}" data-ctl="${id}">${`<span class="ci">${ic(i)}</span>`}<div><b>${t}${ADMIN.has(id) ? `<span class="qlock" title="Asks for your password">${ic("lock")}</span>` : ""}</b><small>…</small></div></button>`).join("")}</div>
-  <div class="card tipcard" id="home-tip"></div>
-  <div class="homegrid">
+/* ================= Modular Dashboard & Home Widgets ================= */
+const WIDGET_DEFS = {
+  sliders: { title: "Sliders & Sound", icon: "sliders" },
+  aiHealth: { title: "AI System Doctor & Health", icon: "stethoscope" },
+  hardware: { title: "Hardware Resource Gauges", icon: "cpu" },
+  network: { title: "Live Network & Speedometer", icon: "speedometer" },
+  quickActions: { title: "Quick Actions & Scripts", icon: "zap" },
+  notes: { title: "Quick Scratchpad & Notes", icon: "note" },
+  power: { title: "Power Controls", icon: "power" }
+};
+
+let HEALTH_DATA = null;
+let healthScanning = false;
+async function refreshSystemHealth(force) {
+  if (healthScanning && !force) return;
+  healthScanning = true;
+  try {
+    HEALTH_DATA = await api("/api/system/health");
+  } catch (e) {
+    HEALTH_DATA = { status: "warning", summary: "Could not scan health: " + e.message, issues: [] };
+  } finally {
+    healthScanning = false;
+    updateHealthUI();
+  }
+}
+
+function updateHealthUI() {
+  const card = $("#widget-ai-health");
+  if (!card) return;
+  const h = HEALTH_DATA || { status: "healthy", summary: "Scanning system health…", issues: [] };
+  const badgeCls = h.status === "healthy" ? "good" : h.status === "warning" ? "warn" : "bad";
+  const badgeText = h.status === "healthy" ? "Optimal" : h.status === "warning" ? "Warning" : "Attention";
+  const badgeIcon = h.status === "healthy" ? "checkcircle" : "alert";
+
+  const badgeEl = $(".ai-health-badge", card);
+  if (badgeEl) {
+    badgeEl.className = `ai-health-badge chip ${badgeCls}`;
+    badgeEl.innerHTML = `${ic(badgeIcon)} ${badgeText}`;
+  }
+  const sumEl = $(".ai-health-summary", card);
+  if (sumEl) sumEl.textContent = h.summary;
+
+  const issuesEl = $(".ai-health-issues", card);
+  if (issuesEl) {
+    if (!h.issues || h.issues.length === 0) {
+      issuesEl.innerHTML = `<div class="ai-health-empty">
+        ${tile("checkcircle", "green", "soft")}
+        <div>
+          <b>All core services, memory, and thermals are running smoothly.</b>
+          <small>No failed systemd units, runaway high-CPU hogs, or full disks detected.</small>
+        </div>
+      </div>`;
+    } else {
+      issuesEl.innerHTML = h.issues.map(iss => `
+        <div class="ai-health-item ${iss.severity}">
+          <div class="ai-health-item-info">
+            <div class="ai-health-item-title">
+              <span class="chip ${iss.severity === "critical" ? "bad" : "warn"}">${iss.severity.toUpperCase()}</span>
+              <b>${iss.title}</b>
+            </div>
+            <div class="ai-health-item-desc">${iss.desc}</div>
+            ${iss.quick_cmd ? `<div class="ai-health-cmd"><code>${iss.quick_cmd}</code></div>` : ""}
+          </div>
+          <div class="ai-health-item-act">
+            <button class="btn sm primary ai-fix-btn" data-ai-fix="${encodeURIComponent(iss.fix_prompt)}" title="Open Assistant with fix plan">
+              ${ic("sparkles")} Fix with AI
+            </button>
+          </div>
+        </div>
+      `).join("");
+    }
+  }
+}
+
+let notesValue = "";
+let notesLoaded = false;
+async function loadNotes() {
+  try {
+    const res = await api("/api/notes");
+    notesValue = res.text || "";
+    notesLoaded = true;
+    const input = $("#home-notes-input");
+    if (input && !input.matches(":focus")) input.value = notesValue;
+  } catch {}
+}
+
+const saveNotesDebounced = debounce(async text => {
+  const status = $("#notes-status");
+  if (status) status.textContent = "Saving…";
+  try {
+    await api("/api/notes", { text });
+    notesValue = text;
+    if (status) status.textContent = "Synced with Assistant memory";
+  } catch (e) {
+    if (status) status.textContent = "Error saving";
+  }
+}, 400);
+
+function renderWidgetSliders() {
+  return `<div class="homegrid">
     <div class="card pad sliders" id="home-sliders">
       <div class="slider"><span class="lbl"><button class="btn ghost icon" data-mute-ctl="mute" data-on-icon="volume" data-off-icon="mute" data-toggle-ctl="mute"></button>Volume</span><input type="range" min="0" max="150" data-ctl="volume"><span class="val" data-val="volume">–</span></div>
       <div class="slider"><span class="lbl"><button class="btn ghost icon" data-mute-ctl="micmute" data-on-icon="mic" data-off-icon="micoff" data-toggle-ctl="micmute"></button>Mic</span><input type="range" min="0" max="150" data-ctl="mic"><span class="val" data-val="mic">–</span></div>
       <div class="slider"><span class="lbl"><span class="btn ghost icon">${ic("brightness")}</span>Brightness</span><input type="range" min="1" max="100" data-ctl="brightness"><span class="val" data-val="brightness">–</span></div>
     </div>
     <div class="group suggest" id="suggest"><div class="row"><div class="txt"><small>Checking your system…</small></div></div></div>
-  </div>
-  <div id="home-live">${sec("Live")}
+  </div>`;
+}
+
+function renderWidgetAIHealth() {
+  const h = HEALTH_DATA || { status: "healthy", summary: "Scanning system health…", issues: [] };
+  const badgeCls = h.status === "healthy" ? "good" : h.status === "warning" ? "warn" : "bad";
+  const badgeText = h.status === "healthy" ? "Optimal" : h.status === "warning" ? "Warning" : "Attention";
+  const badgeIcon = h.status === "healthy" ? "checkcircle" : "alert";
+
+  return `<div class="card pad ai-health-card" id="widget-ai-health">
+    <div class="ai-health-head">
+      <div class="ai-health-status ${h.status}">
+        <span class="ai-health-badge chip ${badgeCls}">${ic(badgeIcon)} ${badgeText}</span>
+        <span class="ai-health-summary">${h.summary}</span>
+      </div>
+      <button class="btn sm ghost" id="btn-health-rescan" title="Re-scan system health">${ic("restart")} Re-scan</button>
+    </div>
+    <div class="ai-health-issues">
+      <div class="ai-health-empty">
+        ${tile("checkcircle", "green", "soft")}
+        <div>
+          <b>Checking core services, memory, and thermals…</b>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWidgetHardware() {
+  return `<div id="home-live">${sec("Hardware Resource Gauges")}
   <div class="monitors">
-    ${["cpu|CPU|cpu|blue", "mem|Memory|memory|violet", "net|Network|network|teal", "temp|Temperature|thermo|orange"].map(s => { const [k, t, i, c] = s.split("|"); return `<div class="card mon" style="--mc:var(--c-${c})" id="mon-${k}"><div class="top">${ic(i)}${t}</div><div class="big">–</div><div class="sub">&nbsp;</div><svg class="spark" viewBox="0 0 100 46" preserveAspectRatio="none"></svg><span class="tip-pop" hidden></span></div>`; }).join("")}
+    ${["cpu|CPU|cpu|blue", "mem|Memory|memory|violet", "temp|Temperature|thermo|orange"].map(s => { const [k, t, i, c] = s.split("|"); return `<div class="card mon" style="--mc:var(--c-${c})" id="mon-${k}"><div class="top">${ic(i)}${t}</div><div class="big">–</div><div class="sub">&nbsp;</div><svg class="spark" viewBox="0 0 100 46" preserveAspectRatio="none"></svg><span class="tip-pop" hidden></span></div>`; }).join("")}
     <div class="card mon" style="--mc:var(--c-green)" id="mon-disk"><div class="top">${ic("disk")}Disk</div><div class="big">–</div><div class="sub">&nbsp;</div><div class="meter" style="margin-top:20px"><i></i></div></div>
     <div class="card mon" style="--mc:var(--c-cyan)" id="mon-sys"><div class="top">${ic("clock")}Uptime</div><div class="big">–</div><div class="sub">&nbsp;</div><div class="sub" id="mon-fan" style="margin-top:14px"></div></div>
-  </div></div>
-  <div id="home-actions">${sec("Quick actions")}
-  ${acts(["updateAll", "checkUpdates", "cleanup", "speedTest", "restartAudio", "errorsNow", "shotRegion", "colorPick"])}</div>
-  <div id="home-power">${sec("Power")}
+  </div></div>`;
+}
+
+function renderWidgetNetwork() {
+  return `<div class="card pad net-speedometer-card" id="widget-network">
+    <div class="net-speed-head">
+      <div class="net-speed-title">
+        <span class="ci" style="color:var(--c-teal); display:inline-flex; align-items:center;">${ic("speedometer")}</span>
+        <div><b>Live Network Speed & Traffic</b><small id="net-iface-info">Monitoring real-time traffic…</small></div>
+      </div>
+      <button class="btn sm ghost" data-act="speedTest">${ic("zap")} Test speed</button>
+    </div>
+    <div class="net-speed-meters">
+      <div class="net-gauge-box rx">
+        <div class="net-gauge-lbl">${ic("arrowdown")} Download</div>
+        <div class="net-gauge-val" id="net-down-rate">0.0 Mb/s</div>
+        <div class="net-gauge-sub">Current throughput</div>
+      </div>
+      <div class="net-gauge-box tx">
+        <div class="net-gauge-lbl">${ic("arrowup")} Upload</div>
+        <div class="net-gauge-val" id="net-up-rate">0.0 Mb/s</div>
+        <div class="net-gauge-sub">Current throughput</div>
+      </div>
+      <div class="net-gauge-box ip">
+        <div class="net-gauge-lbl">${ic("globe")} Local IP</div>
+        <div class="net-gauge-val" id="net-ip-addr">–</div>
+        <div class="net-gauge-sub" id="net-iface-name">Active Interface</div>
+      </div>
+    </div>
+    <div class="net-speed-spark-box">
+      <svg class="spark net-traffic-spark" viewBox="0 0 100 46" preserveAspectRatio="none"></svg>
+    </div>
+  </div>`;
+}
+
+function renderWidgetQuickActions() {
+  const customList = (SETTINGS.customActions || []);
+  const customHtml = customList.map(act => `
+    <div class="act" data-custom-cmd="${encodeURIComponent(act.cmd)}" style="--tc:var(--c-${act.color || "blue"})">
+      ${tile(act.icon || "zap", act.color || "blue")}
+      <div><b>${act.title}</b><small><code>${act.cmd}</code></small></div>
+      <button class="btn sm ghost icon custom-act-del" data-del-custom-act="${act.id}" title="Delete action">${ic("trash")}</button>
+    </div>
+  `).join("");
+
+  return `<div class="card pad quickactions-card" id="home-actions">
+    <div class="quickactions-head">
+      <b>${sec("Quick actions & scripts")}</b>
+      ${EDITING ? `<button class="btn sm" id="btnAddCustomAct">${ic("plus")} Add Action</button>` : ""}
+    </div>
+    ${acts(["updateAll", "checkUpdates", "cleanup", "speedTest", "restartAudio", "errorsNow", "shotRegion", "colorPick"])}
+    ${customHtml ? `<div class="actions" style="margin-top:10px">${customHtml}</div>` : ""}
+  </div>`;
+}
+
+function renderWidgetNotes() {
+  return `<div class="card pad notes-card" id="widget-notes">
+    <div class="notes-head">
+      <div class="notes-title">
+        <span class="ci" style="color:var(--c-violet); display:inline-flex; align-items:center;">${ic("note")}</span>
+        <div><b>Scratchpad & AI Notes</b><small id="notes-status">Synced with Assistant memory</small></div>
+      </div>
+      <button class="btn sm ghost" id="btnAskNotes">${ic("sparkles")} Ask AI about notes</button>
+    </div>
+    <div class="notes-body">
+      <textarea id="home-notes-input" class="notes-textarea" rows="4" placeholder="Jot down quick reminders, commands, or thoughts here… The AI assistant can also read and reference these notes.">${notesValue}</textarea>
+    </div>
+    <div class="notes-foot">
+      <span>Auto-saves as you type</span>
+      <small>Accessible to AI Assistant</small>
+    </div>
+  </div>`;
+}
+
+function renderWidgetPower() {
+  return `<div id="home-power">${sec("Power")}
   ${acts(["lock", "suspend", "logout", "reboot", "poweroff"])}</div>`;
+}
+
+function renderWidgetHtml(id) {
+  const def = WIDGET_DEFS[id];
+  if (!def) return "";
+  const visible = SETTINGS.widgetVisible?.[id] !== false;
+  let body = "";
+  if (id === "sliders") body = renderWidgetSliders();
+  else if (id === "aiHealth") body = renderWidgetAIHealth();
+  else if (id === "hardware") body = renderWidgetHardware();
+  else if (id === "network") body = renderWidgetNetwork();
+  else if (id === "quickActions") body = renderWidgetQuickActions();
+  else if (id === "notes") body = renderWidgetNotes();
+  else if (id === "power") body = renderWidgetPower();
+
+  return `<div class="home-widget" data-widget-id="${id}" data-widget-visible="${visible}">
+    <div class="widget-edit-bar">
+      <div class="widget-drag-handle" data-widget-drag="${id}">
+        ${ic("grip")} <span>${def.title}</span> ${!visible ? `<small style="color:var(--muted);margin-left:6px">(Hidden)</small>` : ""}
+      </div>
+      <div class="widget-controls">
+        <button class="btn sm ghost icon" data-widget-move="up" data-widget-id="${id}" title="Move up">${ic("arrowup")}</button>
+        <button class="btn sm ghost icon" data-widget-move="down" data-widget-id="${id}" title="Move down">${ic("arrowdown")}</button>
+        <button class="btn sm ghost icon ${visible ? "on" : "off"}" data-widget-toggle="${id}" title="${visible ? "Hide from dashboard" : "Show on dashboard"}">
+          ${ic(visible ? "eye" : "eyeoff")}
+        </button>
+      </div>
+    </div>
+    <div class="widget-content">
+      ${body}
+    </div>
+  </div>`;
+}
+
+function renderAllHomeWidgets() {
+  const list = (SETTINGS.homeWidgets && SETTINGS.homeWidgets.length) ? SETTINGS.homeWidgets : DEFAULTS.homeWidgets;
+  return list.map(renderWidgetHtml).join("");
+}
+
+function renderHomeWidgets() {
+  const container = $("#home-widgets");
+  if (!container) return;
+  container.innerHTML = renderAllHomeWidgets();
+  sparks = null;
+  loadStats();
+  updateHealthUI();
+  const input = $("#home-notes-input");
+  if (input) input.value = notesValue;
+}
+
+PAGES.home = () => {
+  QS.forEach(([id, t, i]) => reg({ title: t, desc: "Quick setting", icon: i, color: "blue", ctl: id, anchor: "qs-" + id }));
+  setTimeout(() => {
+    refreshSystemHealth(false);
+    loadNotes();
+  }, 50);
+  return `<div class="hero"><div><h1 id="greeting">Hello</h1><p id="sysline">Loading…</p></div><div class="clock"><b id="clock">--:--</b><small id="date"></small></div></div>
+  <div class="qs">${QS.map(([id, t, i]) => `<button class="qt" id="qs-${id}" data-ctl="${id}">${`<span class="ci">${ic(i)}</span>`}<div><b>${t}${ADMIN.has(id) ? `<span class="qlock" title="Asks for your password">${ic("lock")}</span>` : ""}</b><small>…</small></div></button>`).join("")}</div>
+  <div class="card tipcard" id="home-tip"></div>
+  <div class="home-widgets-container" id="home-widgets">
+    ${renderAllHomeWidgets()}
+  </div>`;
 };
 
 // count smoothly from the old number to the new one (keeps the unit, e.g. "42%" -> "57%")
@@ -800,6 +1059,25 @@ async function loadStats() {
   set("sys", dur(s.uptime), "since last restart");
   $("#mon-fan").innerHTML = s.fan ? `${ic("fan")} Fans at ${s.fan} rpm` : "";
   $("#mon-fan svg")?.setAttribute("style", "width:14px;height:14px;vertical-align:-2px");
+  const downEl = $("#net-down-rate"), upEl = $("#net-up-rate"), ipEl = $("#net-ip-addr"), ifaceEl = $("#net-iface-name"), infoEl = $("#net-iface-info");
+  if (downEl) tweenText(downEl, rate(s.net_down));
+  if (upEl) tweenText(upEl, rate(s.net_up));
+  const primaryIp = s.ips && s.ips[0];
+  if (primaryIp) {
+    if (ipEl) ipEl.textContent = primaryIp.ip;
+    if (ifaceEl) ifaceEl.textContent = primaryIp.iface;
+    if (infoEl) infoEl.textContent = `${primaryIp.iface} · ${primaryIp.ip} · Online`;
+  } else {
+    if (ipEl) ipEl.textContent = "Offline";
+    if (infoEl) infoEl.textContent = "No network connection";
+  }
+  const netSparkEl = $(".net-traffic-spark");
+  if (netSparkEl) {
+    if (!sparks.netSpeed || sparks.netSpeed.svg !== netSparkEl) {
+      sparks.netSpeed = new Spark(netSparkEl.closest(".card") || netSparkEl.parentElement, { fmt: rate });
+    }
+    sparks.netSpeed.push(s.net_down + s.net_up);
+  }
 }
 function tickClock() {
   const d = new Date();
@@ -884,7 +1162,7 @@ function renderNavBadges() {
 }
 const loadSuggestions = () => refreshAlerts(true);
 let DISK = null;
-loaders.home = () => { loadStats(); loadSuggestions(); clearInterval(statTimer); statTimer = setInterval(() => { if (!document.hidden) loadStats(); }, (SETTINGS.refresh || 2) * 1000); };
+loaders.home = () => { renderHomeWidgets(); loadStats(); loadSuggestions(); refreshSystemHealth(false); loadNotes(); clearInterval(statTimer); statTimer = setInterval(() => { if (!document.hidden) loadStats(); }, (SETTINGS.refresh || 2) * 1000); };
 leavers.home = () => clearInterval(statTimer);
 
 /* ---------- APPEARANCE ---------- */
@@ -2824,9 +3102,74 @@ document.addEventListener("click", async e => {
     await setCtl("fancustom", v, { label: `Fan curve ${v.low}°C → ${v.high}°C` }); return loadFan(); }
   const ps = t.closest("[data-pref-seg] button"); if (ps) { const key = ps.parentElement.dataset.prefSeg; setPref(key, ps.dataset.v); if (key === "tempUnit") { loadStats?.(); if (CUR === "sensors") loaders.sensors(); } return; }
   if (EDITING && t.closest("#navlist a")) e.preventDefault();
-  if (t.closest("#navEditBtn")) { EDITING = !EDITING; renderSide(); setSideWidth(SETTINGS.sideWidth || 248, false); return; }
-  if (t.closest("#navDone")) { EDITING = false; renderSide(); setSideWidth(SETTINGS.sideWidth || 248, false); return toast("ok", "Sidebar saved"); }
-  if (t.closest("#navReset")) { if (!(await modal({ title: "Reset the sidebar?", text: "Puts every section and page back where they started, and shows hidden pages again.", okText: "Reset", icon: "restart" }))) return; SETTINGS.navLayout = null; SETTINGS.hiddenPages = []; saveSettings(); return applySettings(); }
+  if (t.closest("#navEditBtn")) { EDITING = !EDITING; renderSide(); setSideWidth(SETTINGS.sideWidth || 248, false); if (CUR === "home") renderHomeWidgets(); return; }
+  if (t.closest("#navDone")) { EDITING = false; saveSettings(); renderSide(); setSideWidth(SETTINGS.sideWidth || 248, false); if (CUR === "home") renderHomeWidgets(); return toast("ok", "Dashboard saved"); }
+  if (t.closest("#navReset")) { if (!(await modal({ title: "Reset sidebar & layout?", text: "Puts every section, page and dashboard widget back where they started, and shows hidden widgets again.", okText: "Reset", icon: "restart" }))) return; SETTINGS.navLayout = null; SETTINGS.homeWidgets = [...DEFAULTS.homeWidgets]; SETTINGS.widgetVisible = { ...DEFAULTS.widgetVisible }; SETTINGS.hiddenPages = []; saveSettings(); renderSide(); if (CUR === "home") renderHomeWidgets(); return applySettings(); }
+  const wmv = t.closest("[data-widget-move]");
+  if (wmv) {
+    const dir = wmv.dataset.widgetMove, wid = wmv.dataset.widgetId;
+    const list = [...(SETTINGS.homeWidgets || DEFAULTS.homeWidgets)];
+    const i = list.indexOf(wid);
+    if (dir === "up" && i > 0) { [list[i - 1], list[i]] = [list[i], list[i - 1]]; }
+    else if (dir === "down" && i < list.length - 1) { [list[i + 1], list[i]] = [list[i], list[i + 1]]; }
+    SETTINGS.homeWidgets = list;
+    saveSettings();
+    renderHomeWidgets();
+    return;
+  }
+  const wtog = t.closest("[data-widget-toggle]");
+  if (wtog) {
+    const wid = wtog.dataset.widgetToggle;
+    SETTINGS.widgetVisible = { ...DEFAULTS.widgetVisible, ...SETTINGS.widgetVisible };
+    SETTINGS.widgetVisible[wid] = !SETTINGS.widgetVisible[wid];
+    saveSettings();
+    renderHomeWidgets();
+    return;
+  }
+  const aifix = t.closest("[data-ai-fix]");
+  if (aifix) {
+    const promptText = decodeURIComponent(aifix.dataset.aiFix);
+    return askAbout(promptText);
+  }
+  if (t.closest("#btn-health-rescan")) {
+    toast("info", "Scanning system health…");
+    return refreshSystemHealth(true);
+  }
+  if (t.closest("#btnAskNotes")) {
+    const txt = $("#home-notes-input")?.value || notesValue || "";
+    return askAbout(`Here are my scratchpad notes:\n\`\`\`\n${txt}\n\`\`\`\nPlease review these notes and give me suggestions, helpful insights, or help me organize them.`);
+  }
+  if (t.closest("#btnAddCustomAct")) {
+    const title = prompt("Action Title (e.g. Flush DNS):");
+    if (!title || !title.trim()) return;
+    const cmd = prompt("Shell command to run:");
+    if (!cmd || !cmd.trim()) return;
+    SETTINGS.customActions = SETTINGS.customActions || [];
+    SETTINGS.customActions.push({
+      id: "act_" + Date.now().toString(36),
+      title: title.trim(),
+      cmd: cmd.trim(),
+      icon: "zap",
+      color: "blue"
+    });
+    saveSettings();
+    renderHomeWidgets();
+    return toast("ok", "Action added");
+  }
+  const dca = t.closest("[data-del-custom-act]");
+  if (dca) {
+    const id = dca.dataset.delCustomAct;
+    SETTINGS.customActions = (SETTINGS.customActions || []).filter(x => x.id !== id);
+    saveSettings();
+    renderHomeWidgets();
+    return toast("ok", "Action removed");
+  }
+  const ccmd = t.closest("[data-custom-cmd]");
+  if (ccmd && !t.closest(".custom-act-del")) {
+    const cmd = decodeURIComponent(ccmd.dataset.customCmd);
+    const title = $("b", ccmd)?.textContent || "Custom script";
+    return run(cmd, title);
+  }
   if (t.closest("#navAddSec")) { const l = navLayout(); l.push({ id: "s" + Date.now().toString(36), name: "New section", items: [] }); saveLayout(l); renderSide(); const inp = $$("#navlist .navsec-name").at(-1); inp.focus(); inp.select(); return; }
   const sd = t.closest("[data-secdel]"); if (sd) { saveLayout(navLayout().filter(s => s.id !== sd.dataset.secdel)); return renderSide(); }
   const nh = t.closest("[data-navhide]"); if (nh) { const k = nh.dataset.navhide, h = new Set(SETTINGS.hiddenPages || []); h.has(k) ? h.delete(k) : h.add(k); SETTINGS.hiddenPages = [...h]; saveSettings(); renderSide(); return; }
@@ -2998,6 +3341,7 @@ const sendPreview = debounce((id, v) => setCtl(id, +v, { silent: true }), 60);
 const sendSlider = debounce((id, v) => setCtl(id, +v, { quiet: true }), 140);
 document.addEventListener("input", e => {
   const el = e.target;
+  if (el.id === "home-notes-input") saveNotesDebounced(el.value);
   if (el.id === "accentPick") { setAccentVars(el.value); $("#accentCustom").style.setProperty("--sc", el.value); }  // live preview while picking
   if (el.type === "range" && el.dataset.ctl) { paintRange(el); if (!el.dataset.admin) sendSlider(el.dataset.ctl, el.value); if (el.dataset.preview) sendPreview(el.dataset.preview, el.value); }
   if (el.type === "range" && el.dataset.stream) { el.style.setProperty("--p", el.value / 1.5 + "%"); el.nextElementSibling.textContent = el.value + "%"; streamVol(el.dataset.stream, el.value); }
